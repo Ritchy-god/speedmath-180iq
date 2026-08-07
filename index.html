@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>คิดเลขเร็ว 180 IQ - Speed Math Competition</title>
+  
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="styles.css">
+  
+  <!-- KaTeX CSS for LaTeX rendering -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+  <!-- KaTeX JS Script -->
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+</head>
+<body>
+
+  <!-- Background Animated Particle Canvas -->
+  <canvas id="particles-canvas"></canvas>
+
+  <div class="app-container">
+    
+    <!-- Header Navigation -->
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <div>
+          <h1 class="brand-title">คิดเลขเร็ว 180 IQ</h1>
+        </div>
+      </div>
+
+      <div class="header-controls">
+        <button id="btn-sound" class="btn-icon" title="เปิด/ปิด เสียง">
+          🔊 <span id="sound-status-text">เปิดเสียง</span>
+        </button>
+        <button id="btn-settings" class="btn-icon" title="ตั้งค่า">
+          ⚙️ <span>ตั้งค่า</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Single Unified Card Stage Container -->
+    <div class="card unified-stage-card">
+      <div class="stage-top-bar">
+        <!-- Top-Left Widget: Question Counter Badge -->
+        <div class="top-left-widget" id="top-left-widget">
+          <div id="question-badge" class="question-badge" style="display: none;">
+            <span class="q-icon">🏆</span>
+            <span class="q-label">ข้อที่</span>
+            <span id="comp-item-curr" class="q-curr">1</span>
+            <span class="q-sep">/</span>
+            <span id="comp-item-total" class="q-total">30</span>
+          </div>
+        </div>
+
+        <!-- Top-Right Widget: Timer Circle on Top, Roll Buttons below -->
+        <div class="top-right-widget">
+          <!-- Compact Timer Circle -->
+          <div class="compact-timer-row">
+            <div class="timer-ring-wrapper compact">
+              <svg class="timer-svg" viewBox="0 0 130 130">
+                <circle class="timer-circle-bg" cx="65" cy="65" r="54"></circle>
+                <circle id="timer-progress" class="timer-circle-progress" cx="65" cy="65" r="54"></circle>
+              </svg>
+              <div class="timer-text-container">
+                <span id="timer-value" class="timer-value compact">30</span>
+                <span id="timer-label" class="timer-sub compact">วินาที</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Stacked Action Buttons below Timer -->
+          <div class="stacked-action-btns">
+            <button id="btn-roll-digits" class="btn-icon btn-highlight compact-btn" title="สุ่มเฉพาะเลขโดด">
+              🎲 1. สุ่มโจทย์ (เลขโดด)
+            </button>
+            <button id="btn-roll-target" class="btn-icon btn-target-start compact-btn" title="สุ่มคำตอบ & เริ่มเวลา">
+              🎯 2. สุ่มคำตอบ & เริ่มเวลา
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main Stage Focal Area: Digit Cards & Target Box (Enlarged & Centered) -->
+      <div class="puzzle-display">
+        <div id="digits-container" class="digits-container">
+          <!-- Dynamically populated digit cards -->
+        </div>
+
+        <div class="target-wrapper">
+          <span class="target-equals">=</span>
+          <span id="target-box" class="target-box">??</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Solutions Panel displaying LaTeX equations -->
+    <div class="solutions-panel">
+      <div id="solutions-header" class="solutions-header">
+        <div class="solutions-title">
+          <span>💡 แสดงคำตอบที่เป็นไปได้ทั้งหมด (LaTeX Format)</span>
+          <span id="solutions-badge" class="badge-count">0 คำตอบ</span>
+        </div>
+        <span id="solutions-toggle-icon" style="font-size: 1.2rem; transition: transform 0.2s ease;">▼</span>
+      </div>
+      
+      <div id="solutions-content" class="solutions-content">
+        <!-- Dynamically rendered LaTeX solutions chips -->
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Scratchpad Widget (Fixed Bottom-Left) -->
+  <div id="scratchpad-container" class="scratchpad-container" style="display: none;">
+    <div class="scratchpad-header">
+      <div class="scratchpad-title">
+        <span>📝 กระดาษทด</span>
+      </div>
+      <div class="scratchpad-tools">
+        <button id="sp-color-white" class="color-btn active" style="background:#ffffff;" title="สีขาว"></button>
+        <button id="sp-color-yellow" class="color-btn" style="background:#ffea00;" title="สีเหลือง"></button>
+        <button id="sp-color-cyan" class="color-btn" style="background:#00f2fe;" title="สีฟ้า"></button>
+        <button id="sp-color-pink" class="color-btn" style="background:#ff0844;" title="สีชมพู"></button>
+        <button id="sp-color-green" class="color-btn" style="background:#00e676;" title="สีเขียว"></button>
+        <button id="sp-btn-eraser" class="tool-btn" title="ยางลบ">🧹 ยางลบ</button>
+        <button id="sp-btn-clear" class="tool-btn danger" title="ล้างกระดาษทด">🗑️ ล้าง</button>
+      </div>
+    </div>
+    <div class="scratchpad-canvas-wrapper">
+      <canvas id="scratchpad-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- Settings Modal Popup -->
+  <div id="modal-settings" class="modal-overlay">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 class="modal-title">⚙️ ตั้งค่าคิดเลขเร็ว</h2>
+        <button id="btn-close-modal" class="btn-icon" style="padding: 0.3rem 0.6rem;">✕</button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">โหมดการเล่น (Game Mode)</label>
+        <select id="select-game-mode" class="form-select">
+          <option value="practice">โหมดฝึกซ้อม (ไม่จำกัดข้อ)</option>
+          <option value="competition">โหมดแข่งขัน (กำหนดจำนวนข้อ)</option>
+        </select>
+      </div>
+
+      <div id="comp-items-group" class="form-group" style="display: none;">
+        <label class="form-label">จำนวนข้อในการแข่งขัน (Total Questions)</label>
+        <input type="number" id="input-comp-items" class="form-input" value="30" min="1" max="999">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">จำนวนตัวเลขโดด (Digits Count)</label>
+        <select id="select-digit-count" class="form-select">
+          <option value="4">เลขโดด 4 ตัว</option>
+          <option value="5">เลขโดด 5 ตัว</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">รูปแบบคำตอบเป้าหมาย (Target Mode)</label>
+        <select id="select-target-mode" class="form-select">
+          <option value="2digit">2 หลัก (10 - 99)</option>
+          <option value="3digit">3 หลัก (100 - 999)</option>
+          <option value="24">เกม 24 (คำตอบ = 24)</option>
+          <option value="custom">กำหนดคำตอบเอง</option>
+        </select>
+      </div>
+
+      <div id="custom-target-group" class="form-group" style="display: none;">
+        <label class="form-label">ระบุคำตอบที่ต้องการ</label>
+        <input type="number" id="input-custom-target" class="form-input" value="24" min="0" max="999">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">เวลาต่อข้อ (วินาที)</label>
+        <select id="select-timer-mode" class="form-select">
+          <option value="30">30 วินาที (มาตรฐานงานศิลปหัตถกรรม)</option>
+          <option value="45">45 วินาที</option>
+          <option value="60">60 วินาที</option>
+          <option value="90">90 วินาที</option>
+          <option value="countup">นับเวลาขึ้น (Count up)</option>
+          <option value="none">ไม่จับเวลา</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">กระดาษทดเลข (Scratchpad)</label>
+        <select id="select-scratchpad-mode" class="form-select">
+          <option value="show">แสดงกระดาษทด (มุมซ้ายล่าง)</option>
+          <option value="hide">ซ่อนกระดาษทด</option>
+        </select>
+      </div>
+
+      <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
+        <button id="btn-save-settings" class="btn-icon btn-highlight" style="width: 100%; justify-content: center;">
+          💾 บันทึกและเริ่มเกมใหม่
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JavaScript Modules -->
+  <script src="js/math-engine.js"></script>
+  <script src="js/solver.js"></script>
+  <script src="js/audio.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
