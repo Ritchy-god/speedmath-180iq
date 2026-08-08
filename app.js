@@ -741,10 +741,13 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     },
 
-    segmentStrokeClusters(w, h) {
+    segmentStrokeClusters(w, h, strokeIndexes = null) {
       if (!this.strokeTrackingValid || this.strokes.length === 0) return [];
       const dpr = window.devicePixelRatio || 1;
-      const boxes = this.strokes.map(points => {
+      const selectedStrokes = strokeIndexes
+        ? strokeIndexes.map(index => this.strokes[index])
+        : this.strokes;
+      const boxes = selectedStrokes.map(points => {
         if (!points || points.length === 0) return null;
         const xs = points.map(p => p.x * dpr);
         const ys = points.map(p => p.y * dpr);
@@ -853,8 +856,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const minLength = 8 * dpr;
       const horizontal = candidates.filter(s => s.w >= minLength && s.w > s.h * 4);
       const vertical = candidates.filter(s => s.h >= minLength && s.h > s.w * 4);
-      const dots = candidates.filter(s => s.w < minLength && s.h < minLength);
+      // Handwritten dots are often small circles rather than taps, so allow a
+      // footprint up to twice the minimum line length.
+      const dots = candidates.filter(s => s.w < minLength * 2 && s.h < minLength * 2);
 
+      if (vertical.length === 1 && dots.length === 1 && candidates.length === 2) {
+        return dots[0].cy < vertical[0].y0 ? 'i' : '!';
+      }
       if (horizontal.length >= 2 && vertical.length === 0) return '=';
       if (horizontal.length === 1 && dots.length >= 2) return '÷';
       if (candidates.length === 2 && horizontal.length === 1 && vertical.length === 1) {
@@ -1268,6 +1276,158 @@ document.addEventListener('DOMContentLoaded', () => {
       return text;
     },
 
+    async recognizeClusters(clusters) {
+      const recognizedParts = [];
+      for (const cl of clusters) {
+        const strokeSymbol = this.classifyStrokeSymbol(cl);
+        if (strokeSymbol) {
+          recognizedParts.push(strokeSymbol);
+          continue;
+        }
+        if (this.isEqualsSignCluster(cl, this.ctx)) {
+          recognizedParts.push('=');
+          continue;
+        }
+
+        const shape = this.analyzeClusterShape(cl);
+        const digitPrediction = this.predictDigit(cl);
+        const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
+        const rasterCross = this.isRasterCrossCluster(cl);
+
+        if (cl.w / Math.max(1, cl.h) > 2.2) {
+          recognizedParts.push('-');
+          continue;
+        }
+        if (!rasterCross && digitPrediction && digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12) {
+          recognizedParts.push(predictedDigit);
+          continue;
+        }
+        if (!window.Tesseract) {
+          recognizedParts.push(predictedDigit || '?');
+          continue;
+        }
+
+        const croppedCanvas = this.cropClusterToCanvas(cl);
+        const isTwoDimensional = cl.h > this.canvas.height * 0.28;
+        const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
+          tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+          tessedit_pageseg_mode: isTwoDimensional ? '6' : '10',
+          preserve_interword_spaces: '1'
+        });
+        const spatialResult = this.parse2DSpatialOCR(res);
+        if (spatialResult) {
+          recognizedParts.push(spatialResult);
+          continue;
+        }
+        const cleaned = this.cleanOCRText(res.data.text || '');
+        const recognizedOperator = cleaned.replace(/[0-9]/g, '');
+        if (recognizedOperator) recognizedParts.push(recognizedOperator);
+        else if (predictedDigit) recognizedParts.push(predictedDigit);
+        else recognizedParts.push('?');
+      }
+      return recognizedParts;
+    },
+
+    async tryRecognizeSpatialSigma(w, h) {
+      if (!this.strokeTrackingValid || this.strokes.length < 4) return '';
+      const dpr = window.devicePixelRatio || 1;
+      const strokeBoxes = this.strokes.map((points, index) => {
+        if (!points || points.length === 0) return null;
+        const xs = points.map(p => p.x * dpr);
+        const ys = points.map(p => p.y * dpr);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const y0 = Math.min(...ys), y1 = Math.max(...ys);
+        return { index, x0, x1, y0, y1, w: x1 - x0, h: y1 - y0 };
+      }).filter(Boolean);
+      if (strokeBoxes.length < 4) return '';
+
+      // Build local 2-D glyph groups. Unlike normal left-to-right grouping,
+      // vertically separated upper/lower bounds must remain independent.
+      const parent = strokeBoxes.map((_, i) => i);
+      const find = (i) => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      const unite = (a, b) => {
+        const rootA = find(a), rootB = find(b);
+        if (rootA !== rootB) parent[rootB] = rootA;
+      };
+      const tolerance = 2 * dpr;
+      for (let i = 0; i < strokeBoxes.length; i++) {
+        for (let j = i + 1; j < strokeBoxes.length; j++) {
+          const overlapX = Math.min(strokeBoxes[i].x1, strokeBoxes[j].x1) - Math.max(strokeBoxes[i].x0, strokeBoxes[j].x0);
+          const overlapY = Math.min(strokeBoxes[i].y1, strokeBoxes[j].y1) - Math.max(strokeBoxes[i].y0, strokeBoxes[j].y0);
+          if (overlapX >= -tolerance && overlapY >= -tolerance) unite(i, j);
+        }
+      }
+
+      const grouped = new Map();
+      strokeBoxes.forEach((box, i) => {
+        const root = find(i);
+        if (!grouped.has(root)) grouped.set(root, []);
+        grouped.get(root).push(box);
+      });
+      const groups = Array.from(grouped.values()).map(items => {
+        const x0 = Math.min(...items.map(b => b.x0));
+        const x1 = Math.max(...items.map(b => b.x1));
+        const y0 = Math.min(...items.map(b => b.y0));
+        const y1 = Math.max(...items.map(b => b.y1));
+        return {
+          indexes: items.map(b => b.index),
+          x0, x1, y0, y1,
+          w: x1 - x0, h: y1 - y0,
+          cx: (x0 + x1) / 2,
+          cy: (y0 + y1) / 2
+        };
+      });
+
+      const candidates = groups.filter(group => {
+        const aspect = group.w / Math.max(1, group.h);
+        return group.cx < w * 0.55 &&
+          group.w > Math.max(30 * dpr, w * 0.08) &&
+          group.h > Math.max(24 * dpr, h * 0.075) &&
+          aspect > 0.82 && aspect < 2.6;
+      }).sort((a, b) => b.w * b.h - a.w * a.h);
+
+      for (const sigma of candidates) {
+        const top = [], bottom = [], right = [];
+        for (const group of groups) {
+          if (group === sigma) continue;
+          const nearTopX = group.cx > sigma.x0 - sigma.w * 0.15 && group.cx < sigma.x1 + sigma.w * 0.2;
+          const nearBottomX = group.cx > sigma.x0 - sigma.w * 0.25 && group.cx < sigma.x1 + sigma.w * 0.5;
+          if (nearTopX && group.y1 <= sigma.y0 - sigma.h * 0.08) {
+            top.push(...group.indexes);
+          } else if (nearBottomX &&
+                     group.y0 >= sigma.y1 + sigma.h * 0.12 &&
+                     group.cy <= sigma.y1 + sigma.h * 1.25) {
+            bottom.push(...group.indexes);
+          } else if (group.cx >= sigma.x1 + sigma.w * 0.12 &&
+                     group.cy >= sigma.y0 - sigma.h * 0.25 &&
+                     group.cy <= sigma.y1 + sigma.h * 0.18) {
+            right.push(...group.indexes);
+          }
+        }
+        if (top.length === 0 || bottom.length === 0 || right.length === 0) continue;
+
+        const topTokens = await this.recognizeClusters(this.segmentStrokeClusters(w, h, top));
+        const bottomTokens = await this.recognizeClusters(this.segmentStrokeClusters(w, h, bottom));
+        const rightTokens = await this.recognizeClusters(this.segmentStrokeClusters(w, h, right));
+        const upper = topTokens.join('').replace(/[^0-9]/g, '');
+        const bottomText = bottomTokens.join('');
+        const lowerMatch = bottomText.match(/(?:i)?=?([0-9]+)/);
+        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
+        if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
+        // The spatial layout itself is strong evidence. Preserve every region
+        // and mark an uncertain token instead of falling through to a bogus
+        // one-line result that scrambles upper/lower bounds.
+        return `Σ_{i=${lowerMatch ? lowerMatch[1] : '?'}}^{${upper || '?'}} ${rightText || '?'}`;
+      }
+      return '';
+    },
+
     bindControls() {
       const colors = [
         { id: 'sp-color-white', hex: '#ffffff' },
@@ -1344,79 +1504,18 @@ document.addEventListener('DOMContentLoaded', () => {
               // the top-left portion of the writing and shifted every crop.
               const w = this.canvas.width;
               const h = this.canvas.height;
+              const spatialSigma = await this.tryRecognizeSpatialSigma(w, h);
+              if (spatialSigma) {
+                exprInput.value = spatialSigma;
+                return;
+              }
               const strokeClusters = this.segmentStrokeClusters(w, h);
               const clusters = strokeClusters.length > 0
                 ? strokeClusters
                 : this.segmentAndRecognizeClusters(this.ctx, w, h);
 
               if (clusters.length > 0) {
-                let recognizedParts = [];
-                for (const cl of clusters) {
-                  const strokeSymbol = this.classifyStrokeSymbol(cl);
-                  if (strokeSymbol) {
-                    recognizedParts.push(strokeSymbol);
-                    continue;
-                  }
-
-                  // Check if cluster is equals sign =
-                  if (this.isEqualsSignCluster(cl, this.ctx)) {
-                    recognizedParts.push('=');
-                    continue;
-                  }
-
-                  const shape = this.analyzeClusterShape(cl);
-                  const digitPrediction = this.predictDigit(cl);
-                  const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
-                  const rasterCross = this.isRasterCrossCluster(cl);
-
-                  // A wide single band is reliably a minus and not a digit.
-                  if (cl.w / Math.max(1, cl.h) > 2.2) {
-                    recognizedParts.push('-');
-                    continue;
-                  }
-
-                  // The dedicated MNIST model is substantially more reliable
-                  // than printed-text OCR on handwritten digits. High-confidence
-                  // predictions are accepted immediately; ambiguous shapes such
-                  // as +, × and parentheses continue to the symbol recognizer.
-                  if (!rasterCross && digitPrediction && digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12) {
-                    recognizedParts.push(predictedDigit);
-                    continue;
-                  }
-
-                  if (!window.Tesseract) {
-                    recognizedParts.push(predictedDigit || '?');
-                    continue;
-                  }
-
-                  // Crop cluster & recognize individually
-                  const croppedCanvas = this.cropClusterToCanvas(cl);
-                  // Pick a page-segmentation mode that matches the crop shape.
-                  // PSM 11 tends to duplicate isolated handwritten glyphs.
-                  const isTwoDimensional = cl.h > this.canvas.height * 0.28;
-                  // Horizontal segmentation already gives us one glyph per
-                  // crop (2, 3, +, 4, ...), so treat it as a single character.
-                  // Using an automatic text-block mode caused handwritten 2/3
-                  // to be discarded as low-confidence noise.
-                  const pageSegMode = isTwoDimensional ? '6' : '10';
-                  const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
-                    tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
-                    tessedit_pageseg_mode: pageSegMode,
-                    preserve_interword_spaces: '1'
-                  });
-
-                  const spatialResult = this.parse2DSpatialOCR(res);
-                  if (spatialResult) {
-                    recognizedParts.push(spatialResult);
-                  } else {
-                    let raw = res.data.text || '';
-                    let cleaned = this.cleanOCRText(raw);
-                    const recognizedOperator = cleaned.replace(/[0-9]/g, '');
-                    if (recognizedOperator) recognizedParts.push(recognizedOperator);
-                    else if (predictedDigit) recognizedParts.push(predictedDigit);
-                    else recognizedParts.push('?');
-                  }
-                }
+                const recognizedParts = await this.recognizeClusters(clusters);
 
                 if (recognizedParts.length > 0) {
                   exprInput.value = recognizedParts.join(' ');
@@ -1474,6 +1573,25 @@ document.addEventListener('DOMContentLoaded', () => {
   /* ==========================================================================
      Check Answer (Evaluates Math & Validates 180 IQ Rules)
   ========================================================================== */
+  function splitTopLevelEquality(expr) {
+    let roundDepth = 0;
+    let braceDepth = 0;
+    for (let i = 0; i < expr.length; i++) {
+      const char = expr[i];
+      if (char === '(') roundDepth++;
+      else if (char === ')') roundDepth = Math.max(0, roundDepth - 1);
+      else if (char === '{') braceDepth++;
+      else if (char === '}') braceDepth = Math.max(0, braceDepth - 1);
+      else if (char === '=' && roundDepth === 0 && braceDepth === 0) {
+        return {
+          left: expr.slice(0, i).trim(),
+          right: expr.slice(i + 1).trim()
+        };
+      }
+    }
+    return { left: expr.trim(), right: '' };
+  }
+
   function doCheckAnswer() {
     playClick();
     const exprInput = document.getElementById('scratchpad-expr-input');
@@ -1485,14 +1603,20 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // 1. Validate Digits Usage
-    const digitCheck = MathEngine.validateDigitUsage(expr, state.currentDigits);
+    const equation = splitTopLevelEquality(expr);
+
+    // 1. Validate only the expression side. Digits in an asserted result such
+    // as "2+3=5" are not game pieces and must not be counted a second time.
+    const digitCheck = MathEngine.validateDigitUsage(equation.left, state.currentDigits);
 
     // 2. Evaluate Expression
-    const evalResult = MathEngine.evaluate(expr);
+    const evalResult = MathEngine.evaluate(equation.left);
+    const assertedResult = equation.right ? MathEngine.evaluate(equation.right) : null;
+    const equationMatches = !assertedResult ||
+      (evalResult.success && assertedResult.success && evalResult.result === assertedResult.result);
 
     // 3. Match with Target Value
-    const isTargetMatched = evalResult.success && evalResult.result === state.targetValue;
+    const isTargetMatched = evalResult.success && equationMatches && evalResult.result === state.targetValue;
     const isFullyCorrect = digitCheck.isValid && isTargetMatched;
 
     const titleEl = document.getElementById('check-result-title');
@@ -1536,6 +1660,15 @@ document.addEventListener('DOMContentLoaded', () => {
             <span class="check-val">${digitCheck.usedDigits.join(', ') || 'ไม่มี'}</span>
           </div>
       `;
+
+      if (!equationMatches) {
+        detailsHtml += `
+          <div class="check-detail-item">
+            <span class="check-label" style="color:var(--accent-pink);">❌ ฝั่งซ้ายและขวาไม่เท่ากัน:</span>
+            <span class="check-val" style="color:var(--accent-pink);">${equation.left} ≠ ${equation.right}</span>
+          </div>
+        `;
+      }
 
       if (!digitCheck.isValid) {
         if (digitCheck.missingDigits.length > 0) {
