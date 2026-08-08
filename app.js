@@ -741,6 +741,92 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     },
 
+    getInkComponents(w, h) {
+      if (!this.ctx || w <= 0 || h <= 0) return [];
+      try {
+        const pixels = this.ctx.getImageData(0, 0, w, h).data;
+        const visited = new Uint8Array(w * h);
+        const components = [];
+        const dpr = window.devicePixelRatio || 1;
+        const minArea = Math.max(3, Math.round(dpr * dpr * 2));
+
+        for (let start = 0; start < w * h; start++) {
+          if (visited[start] || pixels[start * 4 + 3] <= 20) continue;
+          const queue = [start];
+          visited[start] = 1;
+          let area = 0;
+          let x0 = w, y0 = h, x1 = 0, y1 = 0;
+          for (let q = 0; q < queue.length; q++) {
+            const index = queue[q];
+            const x = index % w;
+            const y = Math.floor(index / w);
+            area++;
+            x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+            y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+            for (let dy = -1; dy <= 1; dy++) {
+              for (let dx = -1; dx <= 1; dx++) {
+                if (dx === 0 && dy === 0) continue;
+                const nx = x + dx, ny = y + dy;
+                if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+                const next = ny * w + nx;
+                if (!visited[next] && pixels[next * 4 + 3] > 20) {
+                  visited[next] = 1;
+                  queue.push(next);
+                }
+              }
+            }
+          }
+          if (area >= minArea) {
+            components.push({
+              id: components.length,
+              area, x0, y0, x1, y1,
+              w: x1 - x0 + 1, h: y1 - y0 + 1,
+              cx: (x0 + x1) / 2, cy: (y0 + y1) / 2
+            });
+          }
+        }
+        return components;
+      } catch(e) {
+        return [];
+      }
+    },
+
+    componentsToClusters(components, w, h) {
+      if (!components || components.length === 0) return [];
+      const parent = components.map((_, i) => i);
+      const find = (i) => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      const unite = (a, b) => {
+        const rootA = find(a), rootB = find(b);
+        if (rootA !== rootB) parent[rootB] = rootA;
+      };
+      for (let i = 0; i < components.length; i++) {
+        for (let j = i + 1; j < components.length; j++) {
+          const overlapX = Math.min(components[i].x1, components[j].x1) - Math.max(components[i].x0, components[j].x0);
+          if (overlapX >= 0) unite(i, j);
+        }
+      }
+      const groups = new Map();
+      components.forEach((component, i) => {
+        const root = find(i);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(component);
+      });
+      const padding = Math.max(2, Math.round((window.devicePixelRatio || 1) * 3));
+      return Array.from(groups.values()).map(group => {
+        const x0 = Math.max(0, Math.min(...group.map(c => c.x0)) - padding);
+        const y0 = Math.max(0, Math.min(...group.map(c => c.y0)) - padding);
+        const x1 = Math.min(w - 1, Math.max(...group.map(c => c.x1)) + padding);
+        const y1 = Math.min(h - 1, Math.max(...group.map(c => c.y1)) + padding);
+        return { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+      }).sort((a, b) => a.x0 - b.x0);
+    },
+
     segmentStrokeClusters(w, h, strokeIndexes = null) {
       if (!this.strokeTrackingValid || this.strokes.length === 0) return [];
       const dpr = window.devicePixelRatio || 1;
@@ -1322,6 +1408,98 @@ document.addEventListener('DOMContentLoaded', () => {
       return recognizedParts;
     },
 
+    async tryRecognizeRasterSigma(w, h) {
+      const components = this.getInkComponents(w, h);
+      if (components.length < 5) return '';
+      const dpr = window.devicePixelRatio || 1;
+
+      // Merge only components that are genuinely close in both dimensions.
+      // This can rebuild a multi-stroke Sigma but cannot merge vertically
+      // separated upper/lower limits as the old x-overlap grouping did.
+      const parent = components.map((_, i) => i);
+      const find = (i) => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      const unite = (a, b) => {
+        const rootA = find(a), rootB = find(b);
+        if (rootA !== rootB) parent[rootB] = rootA;
+      };
+      const tolerance = Math.max(2, Math.round(3 * dpr));
+      for (let i = 0; i < components.length; i++) {
+        for (let j = i + 1; j < components.length; j++) {
+          const gapX = Math.max(0, Math.max(components[i].x0, components[j].x0) - Math.min(components[i].x1, components[j].x1));
+          const gapY = Math.max(0, Math.max(components[i].y0, components[j].y0) - Math.min(components[i].y1, components[j].y1));
+          if (gapX <= tolerance && gapY <= tolerance) unite(i, j);
+        }
+      }
+      const grouped = new Map();
+      components.forEach((component, i) => {
+        const root = find(i);
+        if (!grouped.has(root)) grouped.set(root, []);
+        grouped.get(root).push(component);
+      });
+      const groups = Array.from(grouped.values()).map(items => {
+        const x0 = Math.min(...items.map(c => c.x0));
+        const x1 = Math.max(...items.map(c => c.x1));
+        const y0 = Math.min(...items.map(c => c.y0));
+        const y1 = Math.max(...items.map(c => c.y1));
+        return {
+          componentIds: items.map(c => c.id),
+          area: items.reduce((sum, c) => sum + c.area, 0),
+          x0, x1, y0, y1,
+          w: x1 - x0 + 1, h: y1 - y0 + 1,
+          cx: (x0 + x1) / 2, cy: (y0 + y1) / 2
+        };
+      });
+
+      const candidates = groups.filter(group => {
+        const aspect = group.w / Math.max(1, group.h);
+        return group.cx < w * 0.55 &&
+          group.w > Math.max(28 * dpr, w * 0.09) &&
+          group.h > Math.max(22 * dpr, h * 0.075) &&
+          aspect > 0.82 && aspect < 2.7;
+      }).sort((a, b) => b.w * b.h - a.w * a.h);
+
+      for (const sigma of candidates) {
+        const sigmaIds = new Set(sigma.componentIds);
+        const top = [], bottom = [], right = [];
+        for (const component of components) {
+          if (sigmaIds.has(component.id)) continue;
+          const nearTopX = component.cx > sigma.x0 - sigma.w * 0.15 && component.cx < sigma.x1 + sigma.w * 0.2;
+          const nearBottomX = component.cx > sigma.x0 - sigma.w * 0.25 && component.cx < sigma.x1 + sigma.w * 0.5;
+          if (nearTopX && component.y1 <= sigma.y0 - sigma.h * 0.08) {
+            top.push(component);
+          } else if (nearBottomX &&
+                     component.y0 >= sigma.y1 + sigma.h * 0.10 &&
+                     component.cy <= sigma.y1 + sigma.h * 1.3) {
+            bottom.push(component);
+          } else if (component.cx >= sigma.x1 + sigma.w * 0.10 &&
+                     component.cy >= sigma.y0 - sigma.h * 0.28 &&
+                     component.cy <= sigma.y1 + sigma.h * 0.22) {
+            right.push(component);
+          }
+        }
+        // Requiring independent ink both above and below is what prevents an
+        // ordinary one-line 5+3=8 from ever becoming a summation layout.
+        if (top.length === 0 || bottom.length === 0 || right.length === 0) continue;
+
+        const topTokens = await this.recognizeClusters(this.componentsToClusters(top, w, h));
+        const bottomTokens = await this.recognizeClusters(this.componentsToClusters(bottom, w, h));
+        const rightTokens = await this.recognizeClusters(this.componentsToClusters(right, w, h));
+        const upper = topTokens.join('').replace(/[^0-9]/g, '');
+        const bottomText = bottomTokens.join('');
+        const lowerMatch = bottomText.match(/(?:i|1)?=?([0-9]+)/);
+        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
+        if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
+        return `Σ_{i=${lowerMatch ? lowerMatch[1] : '?'}}^{${upper || '?'}} ${rightText || '?'}`;
+      }
+      return '';
+    },
+
     async tryRecognizeSpatialSigma(w, h) {
       if (!this.strokeTrackingValid || this.strokes.length < 4) return '';
       const dpr = window.devicePixelRatio || 1;
@@ -1498,7 +1676,7 @@ document.addEventListener('DOMContentLoaded', () => {
               // the top-left portion of the writing and shifted every crop.
               const w = this.canvas.width;
               const h = this.canvas.height;
-              const spatialSigma = await this.tryRecognizeSpatialSigma(w, h);
+              const spatialSigma = await this.tryRecognizeRasterSigma(w, h);
               if (spatialSigma) {
                 exprInput.value = spatialSigma;
                 return;
