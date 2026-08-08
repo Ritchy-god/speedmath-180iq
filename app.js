@@ -826,7 +826,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         return {
-          narrowOne: cl.w / Math.max(1, cl.h) < 0.3 && holes.length === 0,
+          // Keep this deliberately strict: a handwritten 2 can also have a
+          // narrow column footprint when its strokes do not overlap perfectly.
+          narrowOne: cl.w / Math.max(1, cl.h) < 0.18 && holes.length === 0,
           holes: holes.sort((a, b) => b.area - a.area)
         };
       } catch(e) {
@@ -1039,6 +1041,37 @@ document.addEventListener('DOMContentLoaded', () => {
               const clusters = this.segmentAndRecognizeClusters(this.ctx, w, h);
 
               if (clusters.length > 0) {
+                // First try the complete one-line expression. Tesseract uses
+                // neighbouring characters as context and recognizes ordinary
+                // equations (2+3=5) much better this way than glyph by glyph.
+                const union = clusters.reduce((box, cl) => ({
+                  x0: Math.min(box.x0, cl.x0),
+                  y0: Math.min(box.y0, cl.y0),
+                  x1: Math.max(box.x1, cl.x1),
+                  y1: Math.max(box.y1, cl.y1),
+                  w: Math.max(box.x1, cl.x1) - Math.min(box.x0, cl.x0),
+                  h: Math.max(box.y1, cl.y1) - Math.min(box.y0, cl.y0)
+                }), { x0: w, y0: h, x1: 0, y1: 0, w: 0, h: 0 });
+
+                let fullLineText = '';
+                const looksLikeOneLine = union.h < h * 0.38 && union.w > union.h * 1.8;
+                if (looksLikeOneLine) {
+                  const lineCanvas = this.cropClusterToCanvas(union);
+                  const lineRes = await window.Tesseract.recognize(lineCanvas, 'eng', {
+                    tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+                    tessedit_pageseg_mode: '7',
+                    preserve_interword_spaces: '1'
+                  });
+                  const candidate = this.cleanOCRText(lineRes.data.text || '');
+                  const digitCount = (candidate.match(/[0-9]/g) || []).length;
+                  if (digitCount >= 2 && /[+\-×÷=]/.test(candidate)) fullLineText = candidate;
+                }
+
+                if (fullLineText) {
+                  exprInput.value = fullLineText;
+                  return;
+                }
+
                 let recognizedParts = [];
                 for (const cl of clusters) {
                   // Check if cluster is equals sign =
