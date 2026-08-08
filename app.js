@@ -592,18 +592,81 @@ document.addEventListener('DOMContentLoaded', () => {
       return true;
     },
 
+    getPreprocessedCanvas() {
+      if (!this.canvas) return null;
+      const w = this.canvas.width;
+      const h = this.canvas.height;
+
+      const padding = 50;
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = w + padding * 2;
+      offCanvas.height = h + padding * 2;
+      const offCtx = offCanvas.getContext('2d');
+
+      // 1. Solid White Background
+      offCtx.fillStyle = '#ffffff';
+      offCtx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+
+      const srcData = this.ctx.getImageData(0, 0, w, h);
+      const data = srcData.data;
+
+      // 2. Binary mask of drawn pixels
+      const mask = new Uint8Array(w * h);
+      for (let i = 0; i < data.length; i += 4) {
+        const a = data[i + 3];
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        if (a > 20 && (r + g + b) / 3 > 20) {
+          mask[i / 4] = 1;
+        }
+      }
+
+      // 3. Dilate strokes slightly (thickens thin handwritten lines for OCR)
+      const dilated = new Uint8Array(w * h);
+      for (let y = 1; y < h - 1; y++) {
+        for (let x = 1; x < w - 1; x++) {
+          const idx = y * w + x;
+          if (mask[idx] || mask[idx - 1] || mask[idx + 1] || mask[idx - w] || mask[idx + w]) {
+            dilated[idx] = 1;
+          }
+        }
+      }
+
+      // 4. Render as crisp black strokes on white canvas
+      const dstData = offCtx.createImageData(w, h);
+      for (let i = 0; i < w * h; i++) {
+        const val = dilated[i] ? 0 : 255;
+        const px = i * 4;
+        dstData.data[px] = val;
+        dstData.data[px + 1] = val;
+        dstData.data[px + 2] = val;
+        dstData.data[px + 3] = 255;
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = w;
+      tempCanvas.height = h;
+      tempCanvas.getContext('2d').putImageData(dstData, 0, 0);
+
+      offCtx.drawImage(tempCanvas, padding, padding);
+      return offCanvas;
+    },
+
     cleanOCRText(rawText) {
       if (!rawText) return '';
       let text = rawText
         .replace(/[xX*]/g, '×')
-        .replace(/[:\/]/g, '÷')
+        .replace(/[:]/g, '=')
+        .replace(/\/{2,}/g, '=')
+        .replace(/--+/g, '=')
+        .replace(/\//g, '÷')
         .replace(/[vV]/g, '√')
         .replace(/S/g, '5')
         .replace(/O/g, '0')
         .replace(/I|l|\|/g, '1')
         .replace(/Z/g, '2');
 
-      text = text.replace(/[^0-9+\-*×÷^!√()]/g, '');
+      // Preserve equals sign =, numbers, and math operators
+      text = text.replace(/[^0-9+\-*×÷=^!√()]/g, '');
       return text;
     },
 
@@ -678,7 +741,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
           try {
             if (window.Tesseract) {
-              const res = await window.Tesseract.recognize(this.canvas, 'eng');
+              const preprocessed = this.getPreprocessedCanvas();
+              const res = await window.Tesseract.recognize(preprocessed, 'eng', {
+                tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vV',
+                tessedit_pageseg_mode: '6'
+              });
               let raw = res.data.text || '';
               let cleaned = this.cleanOCRText(raw);
               if (cleaned) {
