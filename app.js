@@ -523,6 +523,9 @@ document.addEventListener('DOMContentLoaded', () => {
     startDrawing(e) {
       e.preventDefault();
       this.isDrawing = true;
+      if (e.pointerId !== undefined && this.canvas.setPointerCapture) {
+        this.canvas.setPointerCapture(e.pointerId);
+      }
       const pos = this.getPos(e);
       this.lastX = pos.x;
       this.lastY = pos.y;
@@ -531,26 +534,30 @@ document.addEventListener('DOMContentLoaded', () => {
     draw(e) {
       if (!this.isDrawing) return;
       e.preventDefault();
-      const pos = this.getPos(e);
+      // Pointer events may contain several pen samples. Drawing all of them
+      // produces a much cleaner glyph than joining only the latest samples.
+      const samples = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+      for (const sample of samples) {
+        const pos = this.getPos(sample);
+        this.ctx.beginPath();
+        this.ctx.moveTo(this.lastX, this.lastY);
+        this.ctx.lineTo(pos.x, pos.y);
+        this.ctx.lineCap = 'round';
+        this.ctx.lineJoin = 'round';
 
-      this.ctx.beginPath();
-      this.ctx.moveTo(this.lastX, this.lastY);
-      this.ctx.lineTo(pos.x, pos.y);
-      this.ctx.lineCap = 'round';
-      this.ctx.lineJoin = 'round';
+        if (this.isEraser) {
+          this.ctx.globalCompositeOperation = 'destination-out';
+          this.ctx.lineWidth = 18;
+        } else {
+          this.ctx.globalCompositeOperation = 'source-over';
+          this.ctx.strokeStyle = this.color;
+          this.ctx.lineWidth = this.lineWidth;
+        }
 
-      if (this.isEraser) {
-        this.ctx.globalCompositeOperation = 'destination-out';
-        this.ctx.lineWidth = 18;
-      } else {
-        this.ctx.globalCompositeOperation = 'source-over';
-        this.ctx.strokeStyle = this.color;
-        this.ctx.lineWidth = this.lineWidth;
+        this.ctx.stroke();
+        this.lastX = pos.x;
+        this.lastY = pos.y;
       }
-
-      this.ctx.stroke();
-      this.lastX = pos.x;
-      this.lastY = pos.y;
     },
 
     stopDrawing(e) {
@@ -576,9 +583,8 @@ document.addEventListener('DOMContentLoaded', () => {
       c.addEventListener('pointercancel', (e) => this.stopDrawing(e));
       c.addEventListener('pointerleave', (e) => this.stopDrawing(e));
 
-      c.addEventListener('touchstart', (e) => this.startDrawing(e), { passive: false });
-      c.addEventListener('touchmove', (e) => this.draw(e), { passive: false });
-      c.addEventListener('touchend', (e) => this.stopDrawing(e));
+      // Pointer events already cover mouse, touch and stylus. Registering touch
+      // events as well caused some mobile browsers to draw every stroke twice.
     },
 
     isCanvasBlank() {
@@ -744,10 +750,13 @@ document.addEventListener('DOMContentLoaded', () => {
     },
 
     cropClusterToCanvas(cl) {
-      const padding = 25;
+      const padding = Math.max(18, Math.round(Math.max(cl.w, cl.h) * 0.25));
+      // Tesseract performs poorly on the tiny crops produced by a high-DPI
+      // canvas. Normalize every cluster to a generous input size.
+      const scale = Math.max(1, Math.min(4, 160 / Math.max(cl.w, cl.h)));
       const offCanvas = document.createElement('canvas');
-      offCanvas.width = cl.w + padding * 2;
-      offCanvas.height = cl.h + padding * 2;
+      offCanvas.width = Math.round((cl.w + padding * 2) * scale);
+      offCanvas.height = Math.round((cl.h + padding * 2) * scale);
       const offCtx = offCanvas.getContext('2d');
 
       offCtx.fillStyle = '#ffffff';
@@ -774,7 +783,15 @@ document.addEventListener('DOMContentLoaded', () => {
       tempCanvas.height = cl.h;
       tempCanvas.getContext('2d').putImageData(dstData, 0, 0);
 
-      offCtx.drawImage(tempCanvas, padding, padding);
+      offCtx.imageSmoothingEnabled = true;
+      offCtx.imageSmoothingQuality = 'high';
+      offCtx.drawImage(
+        tempCanvas,
+        Math.round(padding * scale),
+        Math.round(padding * scale),
+        Math.round(cl.w * scale),
+        Math.round(cl.h * scale)
+      );
       return offCanvas;
     },
 
@@ -929,9 +946,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
           try {
             if (window.Tesseract) {
-              const dpr = window.devicePixelRatio || 1;
-              const w = this.canvas.width / dpr;
-              const h = this.canvas.height / dpr;
+              // getImageData/cropping uses backing-store pixels, not CSS pixels.
+              // Dividing these values by DPR made Retina/mobile devices OCR only
+              // the top-left portion of the writing and shifted every crop.
+              const w = this.canvas.width;
+              const h = this.canvas.height;
               const clusters = this.segmentAndRecognizeClusters(this.ctx, w, h);
 
               if (clusters.length > 0) {
@@ -945,9 +964,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
                   // Crop cluster & recognize individually
                   const croppedCanvas = this.cropClusterToCanvas(cl);
+                  // Pick a page-segmentation mode that matches the crop shape.
+                  // PSM 11 tends to duplicate isolated handwritten glyphs.
+                  const aspect = cl.w / Math.max(1, cl.h);
+                  const isTwoDimensional = cl.h > this.canvas.height * 0.28;
+                  const pageSegMode = isTwoDimensional ? '6' : (aspect < 0.7 ? '10' : (aspect > 1.8 ? '7' : '6'));
                   const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
                     tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
-                    tessedit_pageseg_mode: '11'
+                    tessedit_pageseg_mode: pageSegMode,
+                    preserve_interword_spaces: '1'
                   });
 
                   const spatialResult = this.parse2DSpatialOCR(res);
