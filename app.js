@@ -651,6 +651,68 @@ document.addEventListener('DOMContentLoaded', () => {
       return offCanvas;
     },
 
+    parse2DSpatialOCR(res) {
+      if (!res || !res.data) return '';
+
+      const symbols = res.data.symbols || [];
+      if (symbols.length === 0) return '';
+
+      // 1. Find candidate Sigma symbol ('Σ', 'E', 'W', 'M', 'Z', 'sum')
+      let sigmaSym = null;
+      for (const s of symbols) {
+        const text = (s.text || '').trim();
+        if (['Σ', 'E', 'W', 'M', 'Z'].includes(text) || text.toLowerCase() === 'sum') {
+          const h = (s.bbox.y1 - s.bbox.y0);
+          if (h > 15) {
+            sigmaSym = s;
+            break;
+          }
+        }
+      }
+
+      if (!sigmaSym) return '';
+
+      const sBox = sigmaSym.bbox;
+      const sigmaMidX = (sBox.x0 + sBox.x1) / 2;
+
+      let topChars = [];
+      let bottomChars = [];
+      let rightChars = [];
+
+      for (const s of symbols) {
+        if (s === sigmaSym) continue;
+        const txt = (s.text || '').trim();
+        if (!txt) continue;
+
+        const box = s.bbox;
+        const midX = (box.x0 + box.x1) / 2;
+
+        if (box.y1 <= sBox.y0 + 15 && Math.abs(midX - sigmaMidX) < 120) {
+          topChars.push({ x: box.x0, text: txt });
+        } else if (box.y0 >= sBox.y1 - 15 && Math.abs(midX - sigmaMidX) < 120) {
+          bottomChars.push({ x: box.x0, text: txt });
+        } else if (box.x0 >= sBox.x1 - 15) {
+          rightChars.push({ x: box.x0, text: txt });
+        }
+      }
+
+      topChars.sort((a, b) => a.x - b.x);
+      bottomChars.sort((a, b) => a.x - b.x);
+      rightChars.sort((a, b) => a.x - b.x);
+
+      let topVal = topChars.map(c => c.text).join('').replace(/[^0-9]/g, '') || '4';
+      let bottomVal = bottomChars.map(c => c.text).join('').replace(/[^0-9i=]/g, '');
+
+      if (!bottomVal.includes('i=')) {
+        let numsOnly = bottomVal.replace(/[^0-9]/g, '') || '1';
+        bottomVal = `i=${numsOnly}`;
+      }
+
+      let rightVal = rightChars.map(c => c.text).join('').replace(/[^0-9+\-*×÷^!√()i]/g, '') || 'i';
+
+      return `Σ_{${bottomVal}}^{${topVal}} ${rightVal}`;
+    },
+
     cleanOCRText(rawText) {
       if (!rawText) return '';
       let text = rawText
@@ -666,7 +728,7 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/Z/g, '2');
 
       // Preserve equals sign =, numbers, and math operators
-      text = text.replace(/[^0-9+\-*×÷=^!√()]/g, '');
+      text = text.replace(/[^0-9+\-*×÷=^!√()iΣ_{}]/g, '');
       return text;
     },
 
@@ -743,22 +805,30 @@ document.addEventListener('DOMContentLoaded', () => {
             if (window.Tesseract) {
               const preprocessed = this.getPreprocessedCanvas();
               const res = await window.Tesseract.recognize(preprocessed, 'eng', {
-                tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vV',
-                tessedit_pageseg_mode: '6'
+                tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+                tessedit_pageseg_mode: '11'
               });
-              let raw = res.data.text || '';
-              let cleaned = this.cleanOCRText(raw);
-              if (cleaned) {
-                exprInput.value = cleaned;
+
+              // 1. Try 2D Spatial Parser (for Sigma notation like \sum_{i=1}^{4} i)
+              const spatialResult = this.parse2DSpatialOCR(res);
+              if (spatialResult) {
+                exprInput.value = spatialResult;
               } else {
-                alert('อ่านลายมือไม่ชัดเจน โปรดลองเขียนใหม่ หรือพิมพ์สมการลงในช่อง');
+                // 2. Fallback to 1D cleaned string
+                let raw = res.data.text || '';
+                let cleaned = this.cleanOCRText(raw);
+                if (cleaned) {
+                  exprInput.value = cleaned;
+                } else {
+                  alert('อ่านลายมือไม่ชัดเจน โปรดลองเขียนใหม่ หรือใช้ปุ่มกดสัญลักษณ์ด่วนด้านล่าง');
+                }
               }
             } else {
-              alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือพิมพ์สมการในช่อง');
+              alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือใช้ปุ่มกดสัญลักษณ์ด่วน');
             }
           } catch(err) {
             console.error('OCR error:', err);
-            alert('เกิดข้อผิดพลาดในการอ่านลายมือ โปรดพิมพ์สมการลงในช่อง');
+            alert('เกิดข้อผิดพลาดในการอ่านลายมือ โปรดใช้ปุ่มกดสัญลักษณ์ด่วน');
           } finally {
             ocrBtn.disabled = false;
             ocrBtn.textContent = origText;

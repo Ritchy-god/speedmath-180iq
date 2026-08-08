@@ -818,6 +818,17 @@ body {
   color: #ffffff;
 }
 
+.q-math-btn.highlight-sym {
+  background: linear-gradient(135deg, rgba(0, 242, 254, 0.25), rgba(0, 230, 118, 0.2));
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.q-math-btn.highlight-sym:hover {
+  background: var(--accent-cyan);
+  color: #0d1117;
+}
+
 /* Check Answer Modal Details */
 .check-result-card {
   max-width: 540px !important;
