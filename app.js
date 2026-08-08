@@ -760,6 +760,80 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     },
 
+    analyzeClusterShape(cl) {
+      if (!cl || !this.ctx || cl.w < 1 || cl.h < 1) return { narrowOne: false, holes: [] };
+      try {
+        const src = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+        const pw = cl.w + 2;
+        const ph = cl.h + 2;
+        const ink = new Uint8Array(pw * ph);
+        for (let y = 0; y < cl.h; y++) {
+          for (let x = 0; x < cl.w; x++) {
+            if (src[(y * cl.w + x) * 4 + 3] > 20) ink[(y + 1) * pw + x + 1] = 1;
+          }
+        }
+
+        // Flood-fill the outside. Any sizeable transparent region left over is
+        // an enclosed loop, which distinguishes handwritten 6 from 5.
+        const outside = new Uint8Array(pw * ph);
+        const queue = [0];
+        outside[0] = 1;
+        for (let q = 0; q < queue.length; q++) {
+          const idx = queue[q];
+          const x = idx % pw;
+          const y = Math.floor(idx / pw);
+          const neighbours = [];
+          if (x > 0) neighbours.push(idx - 1);
+          if (x + 1 < pw) neighbours.push(idx + 1);
+          if (y > 0) neighbours.push(idx - pw);
+          if (y + 1 < ph) neighbours.push(idx + pw);
+          for (const next of neighbours) {
+            if (!ink[next] && !outside[next]) {
+              outside[next] = 1;
+              queue.push(next);
+            }
+          }
+        }
+
+        const seen = new Uint8Array(pw * ph);
+        const holes = [];
+        const minArea = Math.max(4, Math.round(cl.w * cl.h * 0.008));
+        for (let start = 0; start < ink.length; start++) {
+          if (ink[start] || outside[start] || seen[start]) continue;
+          const component = [start];
+          seen[start] = 1;
+          let area = 0;
+          let sumY = 0;
+          for (let q = 0; q < component.length; q++) {
+            const idx = component[q];
+            const x = idx % pw;
+            const y = Math.floor(idx / pw);
+            area++;
+            sumY += y - 1;
+            const neighbours = [];
+            if (x > 0) neighbours.push(idx - 1);
+            if (x + 1 < pw) neighbours.push(idx + 1);
+            if (y > 0) neighbours.push(idx - pw);
+            if (y + 1 < ph) neighbours.push(idx + pw);
+            for (const next of neighbours) {
+              if (!ink[next] && !outside[next] && !seen[next]) {
+                seen[next] = 1;
+                component.push(next);
+              }
+            }
+          }
+          if (area >= minArea) holes.push({ area, centerY: sumY / area / cl.h });
+        }
+
+        return {
+          narrowOne: cl.w / Math.max(1, cl.h) < 0.3 && holes.length === 0,
+          holes: holes.sort((a, b) => b.area - a.area)
+        };
+      } catch(e) {
+        return { narrowOne: false, holes: [] };
+      }
+    },
+
     cropClusterToCanvas(cl) {
       const padding = Math.max(18, Math.round(Math.max(cl.w, cl.h) * 0.25));
       // Tesseract performs poorly on the tiny crops produced by a high-DPI
@@ -973,6 +1047,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     continue;
                   }
 
+                  const shape = this.analyzeClusterShape(cl);
+                  if (shape.narrowOne) {
+                    recognizedParts.push('1');
+                    continue;
+                  }
+
                   // Crop cluster & recognize individually
                   const croppedCanvas = this.cropClusterToCanvas(cl);
                   // Pick a page-segmentation mode that matches the crop shape.
@@ -995,6 +1075,13 @@ document.addEventListener('DOMContentLoaded', () => {
                   } else {
                     let raw = res.data.text || '';
                     let cleaned = this.cleanOCRText(raw);
+                    // Tesseract commonly calls a handwritten 6 a 5. A genuine
+                    // 5 has no enclosed loop; use the loop position to recover
+                    // 6/9/0 when the visual evidence is strong.
+                    if (cleaned === '5' && shape.holes.length > 0) {
+                      const loopY = shape.holes[0].centerY;
+                      cleaned = loopY > 0.54 ? '6' : (loopY < 0.46 ? '9' : '0');
+                    }
                     if (cleaned) recognizedParts.push(cleaned);
                   }
                 }
