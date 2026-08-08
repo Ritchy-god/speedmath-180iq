@@ -725,7 +725,10 @@ document.addEventListener('DOMContentLoaded', () => {
     },
 
     isEqualsSignCluster(cl, ctx) {
-      if (!cl || cl.h > 50 || cl.w < 8) return false;
+      // An equals sign is a short, wide glyph. The previous "two or more row
+      // peaks" test also matched 2, 3 and 5 because those digits contain
+      // several horizontal strokes.
+      if (!cl || cl.w < 8 || cl.w / Math.max(1, cl.h) < 1.35) return false;
       try {
         const srcData = ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h);
         const rowCounts = new Int32Array(cl.h);
@@ -734,16 +737,24 @@ document.addEventListener('DOMContentLoaded', () => {
             if (srcData.data[(y * cl.w + x) * 4 + 3] > 20) rowCounts[y]++;
           }
         }
-        let peaks = 0;
+        const bands = [];
         let inPeak = false;
+        let bandStart = 0;
         for (let y = 0; y < cl.h; y++) {
           if (rowCounts[y] > Math.max(2, cl.w * 0.25)) {
-            if (!inPeak) { inPeak = true; peaks++; }
-          } else {
+            if (!inPeak) { inPeak = true; bandStart = y; }
+          } else if (inPeak) {
+            bands.push({ y0: bandStart, y1: y - 1 });
             inPeak = false;
           }
         }
-        return peaks >= 2;
+        if (inPeak) bands.push({ y0: bandStart, y1: cl.h - 1 });
+
+        if (bands.length !== 2) return false;
+        const firstHeight = bands[0].y1 - bands[0].y0 + 1;
+        const secondHeight = bands[1].y1 - bands[1].y0 + 1;
+        const gap = bands[1].y0 - bands[0].y1 - 1;
+        return gap > 0 && firstHeight < cl.h * 0.45 && secondHeight < cl.h * 0.45;
       } catch(e) {
         return false;
       }
