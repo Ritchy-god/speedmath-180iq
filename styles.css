@@ -708,3 +708,182 @@ body {
   height: 100%;
   touch-action: none;
 }
+
+/* Check Answer Button & Pulsing Glow */
+.btn-check-answer {
+  background: linear-gradient(135deg, #ffea00, #ff9100) !important;
+  color: #0d1117 !important;
+  font-weight: 800 !important;
+  box-shadow: 0 4px 20px rgba(255, 234, 0, 0.4);
+}
+
+.btn-check-answer:hover {
+  box-shadow: 0 0 25px rgba(255, 234, 0, 0.7);
+  transform: translateY(-2px);
+}
+
+.pulse-glow {
+  animation: pulse-glow-anim 1.2s infinite alternate;
+}
+
+@keyframes pulse-glow-anim {
+  0% { transform: scale(1); box-shadow: 0 0 10px rgba(255, 234, 0, 0.4); }
+  100% { transform: scale(1.03); box-shadow: 0 0 25px rgba(255, 234, 0, 0.85); }
+}
+
+/* Scratchpad Expression Bar & Quick Math Buttons */
+.scratchpad-expression-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.85rem;
+  background: rgba(10, 14, 22, 0.95);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.input-with-tools {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.scratchpad-input {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.65rem;
+  color: #ffffff;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.scratchpad-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+}
+
+.tool-btn.highlight {
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  color: #0d1117;
+  font-weight: 700;
+  border: none;
+  white-space: nowrap;
+}
+
+.tool-btn.highlight:hover {
+  box-shadow: var(--glow-cyan);
+}
+
+.quick-math-btn-row {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.q-math-btn {
+  flex: 1;
+  min-width: 26px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+  color: var(--text-main);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.q-math-btn:hover {
+  background: rgba(0, 242, 254, 0.25);
+  border-color: var(--accent-cyan);
+  color: #ffffff;
+}
+
+.q-math-btn.danger {
+  color: var(--accent-pink);
+  border-color: rgba(255, 8, 68, 0.4);
+}
+
+.q-math-btn.danger:hover {
+  background: var(--accent-pink);
+  color: #ffffff;
+}
+
+/* Check Answer Modal Details */
+.check-result-card {
+  max-width: 540px !important;
+}
+
+.check-result-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 0.5rem;
+}
+
+.check-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-radius: var(--radius-md);
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+
+.check-banner.success {
+  background: linear-gradient(135deg, rgba(0, 230, 118, 0.2), rgba(0, 242, 254, 0.15));
+  border: 1.5px solid var(--accent-green);
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(0, 230, 118, 0.25);
+}
+
+.check-banner.error {
+  background: linear-gradient(135deg, rgba(255, 8, 68, 0.2), rgba(255, 234, 0, 0.15));
+  border: 1.5px solid var(--accent-pink);
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(255, 8, 68, 0.25);
+}
+
+.check-details-list {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-md);
+  padding: 1rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  font-size: 0.95rem;
+}
+
+.check-detail-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.1);
+  padding-bottom: 0.4rem;
+}
+
+.check-detail-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.check-label {
+  color: var(--text-muted);
+}
+
+.check-val {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: #ffffff;
+}

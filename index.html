@@ -12,6 +12,8 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
   <!-- KaTeX JS Script -->
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+  <!-- Tesseract.js for OCR handwriting recognition -->
+  <script defer src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 </head>
 <body>
 
@@ -77,6 +79,9 @@
             <button id="btn-roll-target" class="btn-icon btn-target-start compact-btn" title="สุ่มคำตอบ & เริ่มเวลา">
               🎯 2. สุ่มคำตอบ & เริ่มเวลา
             </button>
+            <button id="btn-check-answer" class="btn-icon btn-check-answer compact-btn pulse-glow" style="display: none;" title="ตรวจคำตอบเมื่อหมดเวลา">
+              🔍 ตรวจคำตอบ (หมดเวลา)
+            </button>
           </div>
         </div>
       </div>
@@ -129,6 +134,27 @@
     </div>
     <div class="scratchpad-canvas-wrapper">
       <canvas id="scratchpad-canvas"></canvas>
+    </div>
+    <!-- Scratchpad Expression & OCR Bar -->
+    <div class="scratchpad-expression-bar">
+      <div class="input-with-tools">
+        <input type="text" id="scratchpad-expr-input" class="scratchpad-input" placeholder="พิมพ์หรือกดแปลงลายมือสมการ..." autocomplete="off" />
+        <button id="sp-btn-ocr" class="tool-btn highlight" title="แปลงลายมือบนกระดาษเป็นตัวเลข/สมการ">
+          ✨ แปลงลายมือ
+        </button>
+      </div>
+      <div class="quick-math-btn-row">
+        <button class="q-math-btn" data-sym="+">+</button>
+        <button class="q-math-btn" data-sym="-">-</button>
+        <button class="q-math-btn" data-sym="×">×</button>
+        <button class="q-math-btn" data-sym="÷">÷</button>
+        <button class="q-math-btn" data-sym="^">^</button>
+        <button class="q-math-btn" data-sym="√">√</button>
+        <button class="q-math-btn" data-sym="!">!</button>
+        <button class="q-math-btn" data-sym="(">(</button>
+        <button class="q-math-btn" data-sym=")">)</button>
+        <button class="q-math-btn danger" id="sp-btn-input-clear" title="ล้างสมการ">C</button>
+      </div>
     </div>
   </div>
 
@@ -199,6 +225,24 @@
       <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
         <button id="btn-save-settings" class="btn-icon btn-highlight" style="width: 100%; justify-content: center;">
           💾 บันทึกและเริ่มเกมใหม่
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Check Answer Result Modal -->
+  <div id="modal-check-result" class="modal-overlay">
+    <div class="modal-card check-result-card">
+      <div class="modal-header">
+        <h2 id="check-result-title" class="modal-title">🔍 ผลการตรวจคำตอบ</h2>
+        <button id="btn-close-check-modal" class="btn-icon" style="padding: 0.3rem 0.6rem;">✕</button>
+      </div>
+      <div id="check-result-body" class="check-result-body">
+        <!-- Dynamically populated evaluation details -->
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 1rem;">
+        <button id="btn-confirm-check-modal" class="btn-icon btn-highlight" style="width: 100%; justify-content: center;">
+          ตกลง
         </button>
       </div>
     </div>

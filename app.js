@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
     solutionsToggle:      document.getElementById('solutions-toggle-icon'),
     btnRollDigits:        document.getElementById('btn-roll-digits'),
     btnRollTarget:        document.getElementById('btn-roll-target'),
+    btnCheckAnswer:       document.getElementById('btn-check-answer'),
     btnSound:             document.getElementById('btn-sound'),
     soundStatusText:      document.getElementById('sound-status-text'),
     btnSettings:          document.getElementById('btn-settings'),
@@ -59,6 +60,9 @@ document.addEventListener('DOMContentLoaded', () => {
     modalSettings:        document.getElementById('modal-settings'),
     btnCloseModal:        document.getElementById('btn-close-modal'),
     btnSaveSettings:      document.getElementById('btn-save-settings'),
+    modalCheckResult:     document.getElementById('modal-check-result'),
+    btnCloseCheckModal:   document.getElementById('btn-close-check-modal'),
+    btnConfirmCheckModal: document.getElementById('btn-confirm-check-modal'),
     selectGameMode:       document.getElementById('select-game-mode'),
     compItemsGroup:       document.getElementById('comp-items-group'),
     inputCompItems:       document.getElementById('input-comp-items'),
@@ -86,16 +90,20 @@ document.addEventListener('DOMContentLoaded', () => {
      Events
   ========================================================================== */
   function bindEvents() {
-    on(el.btnRollDigits,   'click', doRollDigits);
-    on(el.btnRollTarget,   'click', doRollTarget);
-    on(el.btnSound,        'click', doToggleSound);
-    on(el.btnSettings,     'click', () => openModal());
-    on(el.btnCloseModal,   'click', () => closeModal());
-    on(el.btnSaveSettings, 'click', doSaveSettings);
-    on(el.solutionsHeader, 'click', toggleSolutions);
-    on(el.selectTargetMode,'change', onTargetModeChange);
-    on(el.selectGameMode,  'change', onGameModeChange);
-    on(el.modalSettings,   'click', (e) => { if (e.target === el.modalSettings) closeModal(); });
+    on(el.btnRollDigits,        'click', doRollDigits);
+    on(el.btnRollTarget,        'click', doRollTarget);
+    on(el.btnCheckAnswer,       'click', doCheckAnswer);
+    on(el.btnCloseCheckModal,   'click', closeCheckModal);
+    on(el.btnConfirmCheckModal, 'click', closeCheckModal);
+    on(el.btnSound,             'click', doToggleSound);
+    on(el.btnSettings,          'click', () => openModal());
+    on(el.btnCloseModal,        'click', () => closeModal());
+    on(el.btnSaveSettings,      'click', doSaveSettings);
+    on(el.solutionsHeader,      'click', toggleSolutions);
+    on(el.selectTargetMode,     'change', onTargetModeChange);
+    on(el.selectGameMode,       'change', onGameModeChange);
+    on(el.modalSettings,        'click', (e) => { if (e.target === el.modalSettings) closeModal(); });
+    on(el.modalCheckResult,     'click', (e) => { if (e.target === el.modalCheckResult) closeCheckModal(); });
   }
 
   function on(elem, event, fn) {
@@ -187,6 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
+    if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'none';
     playClick();
     stopTimer();
     rollNewDigits();
@@ -231,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
+    if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'none';
     playClick();
 
     if (isGame24()) {
@@ -410,6 +420,7 @@ document.addEventListener('DOMContentLoaded', () => {
           stopTimer();
           playAlarm();
           state.hasCompletedRound = true;
+          if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'inline-flex';
           return;
         }
       }
@@ -570,6 +581,32 @@ document.addEventListener('DOMContentLoaded', () => {
       c.addEventListener('touchend', (e) => this.stopDrawing(e));
     },
 
+    isCanvasBlank() {
+      if (!this.canvas || !this.ctx) return true;
+      try {
+        const pixelData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height).data;
+        for (let i = 3; i < pixelData.length; i += 4) {
+          if (pixelData[i] > 0) return false;
+        }
+      } catch(e) {}
+      return true;
+    },
+
+    cleanOCRText(rawText) {
+      if (!rawText) return '';
+      let text = rawText
+        .replace(/[xX*]/g, '×')
+        .replace(/[:\/]/g, '÷')
+        .replace(/[vV]/g, '√')
+        .replace(/S/g, '5')
+        .replace(/O/g, '0')
+        .replace(/I|l|\|/g, '1')
+        .replace(/Z/g, '2');
+
+      text = text.replace(/[^0-9+\-*×÷^!√()]/g, '');
+      return text;
+    },
+
     bindControls() {
       const colors = [
         { id: 'sp-color-white', hex: '#ffffff' },
@@ -620,8 +657,172 @@ document.addEventListener('DOMContentLoaded', () => {
           this.clear();
         });
       }
+
+      // OCR Handwriting Conversion
+      const ocrBtn = document.getElementById('sp-btn-ocr');
+      const exprInput = document.getElementById('scratchpad-expr-input');
+
+      if (ocrBtn && exprInput) {
+        ocrBtn.addEventListener('click', async () => {
+          playClick();
+          if (!this.canvas) return;
+
+          if (this.isCanvasBlank()) {
+            alert('กรุณาเขียนลายมือสมการบนกระดาษทดก่อนกดแปลงลายมือ');
+            return;
+          }
+
+          ocrBtn.disabled = true;
+          const origText = ocrBtn.textContent;
+          ocrBtn.textContent = '⏳ กำลังอ่าน...';
+
+          try {
+            if (window.Tesseract) {
+              const res = await window.Tesseract.recognize(this.canvas, 'eng');
+              let raw = res.data.text || '';
+              let cleaned = this.cleanOCRText(raw);
+              if (cleaned) {
+                exprInput.value = cleaned;
+              } else {
+                alert('อ่านลายมือไม่ชัดเจน โปรดลองเขียนใหม่ หรือพิมพ์สมการลงในช่อง');
+              }
+            } else {
+              alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือพิมพ์สมการในช่อง');
+            }
+          } catch(err) {
+            console.error('OCR error:', err);
+            alert('เกิดข้อผิดพลาดในการอ่านลายมือ โปรดพิมพ์สมการลงในช่อง');
+          } finally {
+            ocrBtn.disabled = false;
+            ocrBtn.textContent = origText;
+          }
+        });
+      }
+
+      // Quick Math Buttons
+      const qBtns = document.querySelectorAll('.q-math-btn');
+      qBtns.forEach(b => {
+        b.addEventListener('click', () => {
+          playClick();
+          if (!exprInput) return;
+          const sym = b.getAttribute('data-sym');
+          if (sym) {
+            exprInput.value += sym;
+            exprInput.focus();
+          }
+        });
+      });
+
+      const clearInputBtn = document.getElementById('sp-btn-input-clear');
+      if (clearInputBtn && exprInput) {
+        clearInputBtn.addEventListener('click', () => {
+          playClick();
+          exprInput.value = '';
+          exprInput.focus();
+        });
+      }
     }
   };
+
+  /* ==========================================================================
+     Check Answer (Evaluates Math & Validates 180 IQ Rules)
+  ========================================================================== */
+  function doCheckAnswer() {
+    playClick();
+    const exprInput = document.getElementById('scratchpad-expr-input');
+    const expr = exprInput ? exprInput.value.trim() : '';
+
+    if (!expr) {
+      alert('กรุณาพิมพ์หรือกด "✨ แปลงลายมือ" เพื่อใส่สมการก่อนกดตรวจคำตอบครับ');
+      if (exprInput) exprInput.focus();
+      return;
+    }
+
+    // 1. Validate Digits Usage
+    const digitCheck = MathEngine.validateDigitUsage(expr, state.currentDigits);
+
+    // 2. Evaluate Expression
+    const evalResult = MathEngine.evaluate(expr);
+
+    // 3. Match with Target Value
+    const isTargetMatched = evalResult.success && evalResult.result === state.targetValue;
+    const isFullyCorrect = digitCheck.isValid && isTargetMatched;
+
+    const titleEl = document.getElementById('check-result-title');
+    const bodyEl = document.getElementById('check-result-body');
+
+    if (titleEl) titleEl.textContent = isFullyCorrect ? '🎉 ผลการตรวจ: ถูกต้อง!' : '⚠️ ผลการตรวจ: ยังไม่ถูกต้อง';
+
+    if (bodyEl) {
+      let bannerHtml = isFullyCorrect ? `
+        <div class="check-banner success">
+          <span>🏆 ถูกต้อง 180 IQ! คำตอบตรงกับเป้าหมายและใช้ตัวเลขครบถ้วนตามกฎ</span>
+        </div>
+      ` : `
+        <div class="check-banner error">
+          <span>⚠️ มีข้อผิดพลาดในสมการของคุณ</span>
+        </div>
+      `;
+
+      let detailsHtml = `
+        <div class="check-details-list">
+          <div class="check-detail-item">
+            <span class="check-label">สมการของคุณ:</span>
+            <span class="check-val" style="color:var(--accent-cyan); font-size:1.1rem;">${expr}</span>
+          </div>
+          <div class="check-detail-item">
+            <span class="check-label">ผลลัพธ์คำนวณได้:</span>
+            <span class="check-val" style="color:${isTargetMatched ? 'var(--accent-green)' : 'var(--accent-pink)'}; font-size:1.25rem;">
+              ${evalResult.success ? evalResult.result : 'คำนวณไม่ได้ (' + (evalResult.error || 'ไวยากรณ์ผิด') + ')'}
+            </span>
+          </div>
+          <div class="check-detail-item">
+            <span class="check-label">เป้าหมาย (Target):</span>
+            <span class="check-val" style="color:var(--accent-yellow); font-size:1.25rem;">${state.targetValue}</span>
+          </div>
+          <div class="check-detail-item">
+            <span class="check-label">ตัวเลขโจทย์:</span>
+            <span class="check-val">${state.currentDigits.join(', ')}</span>
+          </div>
+          <div class="check-detail-item">
+            <span class="check-label">ตัวเลขที่ใช้ในสมการ:</span>
+            <span class="check-val">${digitCheck.usedDigits.join(', ') || 'ไม่มี'}</span>
+          </div>
+      `;
+
+      if (!digitCheck.isValid) {
+        if (digitCheck.missingDigits.length > 0) {
+          detailsHtml += `
+            <div class="check-detail-item">
+              <span class="check-label" style="color:var(--accent-pink);">❌ ใช้ตัวเลขไม่ครบ:</span>
+              <span class="check-val" style="color:var(--accent-pink);">ขาดเลข ${digitCheck.missingDigits.join(', ')}</span>
+            </div>
+          `;
+        }
+        if (digitCheck.extraDigits.length > 0) {
+          detailsHtml += `
+            <div class="check-detail-item">
+              <span class="check-label" style="color:var(--accent-pink);">❌ ใช้ตัวเลขเกินโจทย์:</span>
+              <span class="check-val" style="color:var(--accent-pink);">มีเลข ${digitCheck.extraDigits.join(', ')}</span>
+            </div>
+          `;
+        }
+      }
+
+      detailsHtml += `</div>`;
+      bodyEl.innerHTML = bannerHtml + detailsHtml;
+    }
+
+    if (isFullyCorrect) playAlarm();
+
+    const checkModal = document.getElementById('modal-check-result');
+    if (checkModal) checkModal.classList.add('active');
+  }
+
+  function closeCheckModal() {
+    const checkModal = document.getElementById('modal-check-result');
+    if (checkModal) checkModal.classList.remove('active');
+  }
 
   /* ==========================================================================
      Settings Modal
