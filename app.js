@@ -651,6 +651,133 @@ document.addEventListener('DOMContentLoaded', () => {
       return offCanvas;
     },
 
+    segmentAndRecognizeClusters(ctx, w, h) {
+      if (!ctx || w <= 0 || h <= 0) return [];
+      try {
+        const srcData = ctx.getImageData(0, 0, w, h);
+        const data = srcData.data;
+
+        // 1. Column density
+        const colCounts = new Int32Array(w);
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const idx = (y * w + x) * 4;
+            if (data[idx + 3] > 20) colCounts[x]++;
+          }
+        }
+
+        const clusters = [];
+        let inCluster = false;
+        let startX = 0;
+        let emptyCount = 0;
+
+        for (let x = 0; x < w; x++) {
+          if (colCounts[x] > 0) {
+            if (!inCluster) {
+              inCluster = true;
+              startX = x;
+            }
+            emptyCount = 0;
+          } else {
+            if (inCluster) {
+              emptyCount++;
+              if (emptyCount > 8 || x === w - 1) {
+                inCluster = false;
+                const endX = x - emptyCount;
+                if (endX - startX > 6) {
+                  clusters.push({ x0: startX, x1: endX });
+                }
+              }
+            }
+          }
+        }
+        if (inCluster) {
+          clusters.push({ x0: startX, x1: w });
+        }
+
+        for (const cl of clusters) {
+          let minY = h, maxY = 0;
+          for (let y = 0; y < h; y++) {
+            for (let x = cl.x0; x <= cl.x1; x++) {
+              const idx = (y * w + x) * 4;
+              if (data[idx + 3] > 20) {
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+              }
+            }
+          }
+          cl.y0 = minY;
+          cl.y1 = maxY;
+          cl.w = cl.x1 - cl.x0;
+          cl.h = Math.max(1, maxY - minY);
+        }
+
+        return clusters;
+      } catch(e) {
+        return [];
+      }
+    },
+
+    isEqualsSignCluster(cl, ctx) {
+      if (!cl || cl.h > 50 || cl.w < 8) return false;
+      try {
+        const srcData = ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h);
+        const rowCounts = new Int32Array(cl.h);
+        for (let y = 0; y < cl.h; y++) {
+          for (let x = 0; x < cl.w; x++) {
+            if (srcData.data[(y * cl.w + x) * 4 + 3] > 20) rowCounts[y]++;
+          }
+        }
+        let peaks = 0;
+        let inPeak = false;
+        for (let y = 0; y < cl.h; y++) {
+          if (rowCounts[y] > Math.max(2, cl.w * 0.25)) {
+            if (!inPeak) { inPeak = true; peaks++; }
+          } else {
+            inPeak = false;
+          }
+        }
+        return peaks >= 2;
+      } catch(e) {
+        return false;
+      }
+    },
+
+    cropClusterToCanvas(cl) {
+      const padding = 25;
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = cl.w + padding * 2;
+      offCanvas.height = cl.h + padding * 2;
+      const offCtx = offCanvas.getContext('2d');
+
+      offCtx.fillStyle = '#ffffff';
+      offCtx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+
+      const srcData = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h);
+      const data = srcData.data;
+
+      const dstData = offCtx.createImageData(cl.w, cl.h);
+      for (let i = 0; i < cl.w * cl.h; i++) {
+        const a = data[i * 4 + 3];
+        const r = data[i * 4], g = data[i * 4 + 1], b = data[i * 4 + 2];
+        const isDrawn = a > 20 && (r + g + b) / 3 > 20;
+        const val = isDrawn ? 0 : 255;
+        const px = i * 4;
+        dstData.data[px] = val;
+        dstData.data[px + 1] = val;
+        dstData.data[px + 2] = val;
+        dstData.data[px + 3] = 255;
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = cl.w;
+      tempCanvas.height = cl.h;
+      tempCanvas.getContext('2d').putImageData(dstData, 0, 0);
+
+      offCtx.drawImage(tempCanvas, padding, padding);
+      return offCanvas;
+    },
+
     parse2DSpatialOCR(res) {
       if (!res || !res.data) return '';
 
@@ -727,7 +854,6 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/I|l|\|/g, '1')
         .replace(/Z/g, '2');
 
-      // Preserve equals sign =, numbers, and math operators
       text = text.replace(/[^0-9+\-*×÷=^!√()iΣ_{}]/g, '');
       return text;
     },
@@ -803,25 +929,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
           try {
             if (window.Tesseract) {
-              const preprocessed = this.getPreprocessedCanvas();
-              const res = await window.Tesseract.recognize(preprocessed, 'eng', {
-                tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
-                tessedit_pageseg_mode: '11'
-              });
+              const dpr = window.devicePixelRatio || 1;
+              const w = this.canvas.width / dpr;
+              const h = this.canvas.height / dpr;
+              const clusters = this.segmentAndRecognizeClusters(this.ctx, w, h);
 
-              // 1. Try 2D Spatial Parser (for Sigma notation like \sum_{i=1}^{4} i)
-              const spatialResult = this.parse2DSpatialOCR(res);
-              if (spatialResult) {
-                exprInput.value = spatialResult;
-              } else {
-                // 2. Fallback to 1D cleaned string
-                let raw = res.data.text || '';
-                let cleaned = this.cleanOCRText(raw);
-                if (cleaned) {
-                  exprInput.value = cleaned;
-                } else {
-                  alert('อ่านลายมือไม่ชัดเจน โปรดลองเขียนใหม่ หรือใช้ปุ่มกดสัญลักษณ์ด่วนด้านล่าง');
+              if (clusters.length > 0) {
+                let recognizedParts = [];
+                for (const cl of clusters) {
+                  // Check if cluster is equals sign =
+                  if (this.isEqualsSignCluster(cl, this.ctx)) {
+                    recognizedParts.push('=');
+                    continue;
+                  }
+
+                  // Crop cluster & recognize individually
+                  const croppedCanvas = this.cropClusterToCanvas(cl);
+                  const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
+                    tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+                    tessedit_pageseg_mode: '11'
+                  });
+
+                  const spatialResult = this.parse2DSpatialOCR(res);
+                  if (spatialResult) {
+                    recognizedParts.push(spatialResult);
+                  } else {
+                    let raw = res.data.text || '';
+                    let cleaned = this.cleanOCRText(raw);
+                    if (cleaned) recognizedParts.push(cleaned);
+                  }
                 }
+
+                if (recognizedParts.length > 0) {
+                  exprInput.value = recognizedParts.join(' ');
+                } else {
+                  alert('อ่านลายมือไม่ชัดเจน โปรดกดปุ่มสัญลักษณ์ด่วนด้านล่าง');
+                }
+              } else {
+                // Fallback to full canvas
+                const preprocessed = this.getPreprocessedCanvas();
+                const res = await window.Tesseract.recognize(preprocessed, 'eng', {
+                  tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+                  tessedit_pageseg_mode: '11'
+                });
+                const spatialResult = this.parse2DSpatialOCR(res);
+                exprInput.value = spatialResult || this.cleanOCRText(res.data.text || '');
               }
             } else {
               alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือใช้ปุ่มกดสัญลักษณ์ด่วน');
