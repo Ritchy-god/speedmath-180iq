@@ -977,9 +977,12 @@ document.addEventListener('DOMContentLoaded', () => {
                   const croppedCanvas = this.cropClusterToCanvas(cl);
                   // Pick a page-segmentation mode that matches the crop shape.
                   // PSM 11 tends to duplicate isolated handwritten glyphs.
-                  const aspect = cl.w / Math.max(1, cl.h);
                   const isTwoDimensional = cl.h > this.canvas.height * 0.28;
-                  const pageSegMode = isTwoDimensional ? '6' : (aspect < 0.7 ? '10' : (aspect > 1.8 ? '7' : '6'));
+                  // Horizontal segmentation already gives us one glyph per
+                  // crop (2, 3, +, 4, ...), so treat it as a single character.
+                  // Using an automatic text-block mode caused handwritten 2/3
+                  // to be discarded as low-confidence noise.
+                  const pageSegMode = isTwoDimensional ? '6' : '10';
                   const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
                     tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
                     tessedit_pageseg_mode: pageSegMode,
