@@ -741,17 +741,28 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     },
 
-    getInkComponents(w, h) {
+    getInkComponents(w, h, excludedBands = []) {
       if (!this.ctx || w <= 0 || h <= 0) return [];
       try {
         const pixels = this.ctx.getImageData(0, 0, w, h).data;
         const visited = new Uint8Array(w * h);
+        const excluded = excludedBands.length > 0 ? new Uint8Array(w * h) : null;
+        for (const band of excludedBands) {
+          const x0 = Math.max(0, Math.floor(band.x0));
+          const x1 = Math.min(w - 1, Math.ceil(band.x1));
+          const y0 = Math.max(0, Math.floor(band.y0));
+          const y1 = Math.min(h - 1, Math.ceil(band.y1));
+          for (let y = y0; y <= y1; y++) {
+            const row = y * w;
+            for (let x = x0; x <= x1; x++) excluded[row + x] = 1;
+          }
+        }
         const components = [];
         const dpr = window.devicePixelRatio || 1;
         const minArea = Math.max(3, Math.round(dpr * dpr * 2));
 
         for (let start = 0; start < w * h; start++) {
-          if (visited[start] || pixels[start * 4 + 3] <= 20) continue;
+          if (visited[start] || (excluded && excluded[start]) || pixels[start * 4 + 3] <= 20) continue;
           const queue = [start];
           visited[start] = 1;
           let area = 0;
@@ -769,7 +780,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const nx = x + dx, ny = y + dy;
                 if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
                 const next = ny * w + nx;
-                if (!visited[next] && pixels[next * 4 + 3] > 20) {
+                if (!visited[next] && (!excluded || !excluded[next]) && pixels[next * 4 + 3] > 20) {
                   visited[next] = 1;
                   queue.push(next);
                 }
@@ -825,6 +836,204 @@ document.addEventListener('DOMContentLoaded', () => {
         const y1 = Math.min(h - 1, Math.max(...group.map(c => c.y1)) + padding);
         return { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 };
       }).sort((a, b) => a.x0 - b.x0);
+    },
+
+    findHorizontalInkBands(w, h) {
+      if (!this.ctx || w <= 0 || h <= 0) return [];
+      try {
+        const pixels = this.ctx.getImageData(0, 0, w, h).data;
+        const dpr = window.devicePixelRatio || 1;
+        const minRun = Math.max(Math.round(10 * dpr), Math.round(w * 0.025));
+        const runs = [];
+        let previousRow = [];
+        const parent = [];
+        const find = (i) => {
+          while (parent[i] !== i) {
+            parent[i] = parent[parent[i]];
+            i = parent[i];
+          }
+          return i;
+        };
+        const unite = (a, b) => {
+          const rootA = find(a), rootB = find(b);
+          if (rootA !== rootB) parent[rootB] = rootA;
+        };
+
+        for (let y = 0; y < h; y++) {
+          const rowRuns = [];
+          let start = -1;
+          for (let x = 0; x <= w; x++) {
+            const ink = x < w && pixels[(y * w + x) * 4 + 3] > 20;
+            if (ink && start < 0) start = x;
+            if ((!ink || x === w) && start >= 0) {
+              const end = x - 1;
+              if (end - start + 1 >= minRun) {
+                const run = { id: runs.length, y, x0: start, x1: end, w: end - start + 1 };
+                parent.push(run.id);
+                runs.push(run);
+                rowRuns.push(run);
+                for (const previous of previousRow) {
+                  const overlap = Math.min(run.x1, previous.x1) - Math.max(run.x0, previous.x0) + 1;
+                  if (overlap >= Math.min(run.w, previous.w) * 0.35) unite(run.id, previous.id);
+                }
+              }
+              start = -1;
+            }
+          }
+          previousRow = rowRuns;
+        }
+
+        const grouped = new Map();
+        for (const run of runs) {
+          const root = find(run.id);
+          if (!grouped.has(root)) grouped.set(root, []);
+          grouped.get(root).push(run);
+        }
+        const minLineWidth = Math.max(Math.round(16 * dpr), Math.round(w * 0.035));
+        return Array.from(grouped.values()).map((items, id) => {
+          const peak = items.reduce((best, item) => item.w > best.w ? item : best, items[0]);
+          const x0 = Math.min(...items.map(item => item.x0));
+          const x1 = Math.max(...items.map(item => item.x1));
+          const y0 = Math.min(...items.map(item => item.y));
+          const y1 = Math.max(...items.map(item => item.y));
+          return {
+            id, x0, x1, y0, y1,
+            w: x1 - x0 + 1,
+            h: y1 - y0 + 1,
+            cx: (x0 + x1) / 2,
+            cy: (y0 + y1) / 2,
+            peakWidth: peak.w
+          };
+        }).filter(band =>
+          band.w >= minLineWidth &&
+          band.h <= Math.max(Math.round(10 * dpr), band.w * 0.30)
+        ).sort((a, b) => a.x0 - b.x0 || a.y0 - b.y0);
+      } catch(e) {
+        return [];
+      }
+    },
+
+    estimateInkGlyphHeight(components) {
+      const dpr = window.devicePixelRatio || 1;
+      const candidates = (components || []).filter(component =>
+        component.h >= 8 * dpr &&
+        component.w / Math.max(1, component.h) < 2.6
+      );
+      if (candidates.length === 0) return Math.max(24 * dpr, this.canvas ? this.canvas.height * 0.16 : 24);
+      const maxHeight = Math.max(...candidates.map(component => component.h));
+      const heights = candidates
+        .filter(component => component.h >= maxHeight * 0.42)
+        .map(component => component.h)
+        .sort((a, b) => a - b);
+      return heights[Math.floor(heights.length / 2)] || maxHeight;
+    },
+
+    findFractionLayouts(w, h, components, bands) {
+      if (!this.ctx || !components.length || !bands.length) return [];
+      const dpr = window.devicePixelRatio || 1;
+      const glyphHeight = this.estimateInkGlyphHeight(components);
+      const pixels = this.ctx.getImageData(0, 0, w, h).data;
+      const equalsBands = new Set();
+
+      for (let i = 0; i < bands.length; i++) {
+        for (let j = i + 1; j < bands.length; j++) {
+          const a = bands[i], b = bands[j];
+          const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) + 1;
+          const minWidth = Math.min(a.w, b.w);
+          const gap = Math.max(0, Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1) - 1);
+          const widthRatio = minWidth / Math.max(a.w, b.w);
+          if (overlap >= minWidth * 0.70 && widthRatio >= 0.65 &&
+              gap >= Math.max(1, dpr) && gap <= glyphHeight * 0.35) {
+            equalsBands.add(a.id);
+            equalsBands.add(b.id);
+          }
+        }
+      }
+
+      const hasImmediateVerticalBridge = (band) => {
+        const reach = Math.max(3, Math.round(glyphHeight * 0.08));
+        for (let x = band.x0; x <= band.x1; x++) {
+          let above = false, below = false;
+          for (let dx = -1; dx <= 1 && !(above && below); dx++) {
+            const px = x + dx;
+            if (px < 0 || px >= w) continue;
+            for (let y = Math.max(0, band.y0 - reach); y < band.y0; y++) {
+              if (pixels[(y * w + px) * 4 + 3] > 20) { above = true; break; }
+            }
+            for (let y = band.y1 + 1; y <= Math.min(h - 1, band.y1 + reach); y++) {
+              if (pixels[(y * w + px) * 4 + 3] > 20) { below = true; break; }
+            }
+          }
+          if (above && below) return true;
+        }
+        return false;
+      };
+
+      const candidates = [];
+      const minFractionWidth = Math.max(16 * dpr, glyphHeight * 0.48);
+      for (const band of bands) {
+        if (equalsBands.has(band.id) || band.w < minFractionWidth) continue;
+        const verticalBridge = hasImmediateVerticalBridge(band);
+        const hostComponents = components.filter(component =>
+          component.y0 <= band.cy && component.y1 >= band.cy &&
+          Math.min(component.x1, band.x1) - Math.max(component.x0, band.x0) + 1 >= band.w * 0.45
+        );
+        if (hostComponents.length > 0) {
+          const narrowestHost = Math.min(...hostComponents.map(component => component.w));
+          if (band.w / Math.max(1, narrowestHost) < 0.70) continue;
+        }
+        const cutPadding = Math.max(1, Math.round(1.5 * dpr));
+        const cut = {
+          x0: band.x0 - cutPadding,
+          x1: band.x1 + cutPadding,
+          y0: band.y0 - cutPadding,
+          y1: band.y1 + cutPadding
+        };
+        const splitComponents = this.getInkComponents(w, h, [cut]);
+        const xTolerance = Math.max(4 * dpr, band.w * 0.20);
+        const maxDistance = Math.max(glyphHeight * 1.35, band.w * 1.70);
+        const inHorizontalRange = component =>
+          component.cx >= band.x0 - xTolerance && component.cx <= band.x1 + xTolerance;
+        const numerator = splitComponents.filter(component =>
+          inHorizontalRange(component) && component.y1 < cut.y0 && cut.y0 - component.y1 <= maxDistance
+        );
+        const denominator = splitComponents.filter(component =>
+          inHorizontalRange(component) && component.y0 > cut.y1 && component.y0 - cut.y1 <= maxDistance
+        );
+        const substantive = component =>
+          component.h >= Math.max(5 * dpr, glyphHeight * 0.18) &&
+          component.w / Math.max(1, component.h) < 4;
+        if (!numerator.some(substantive) || !denominator.some(substantive)) continue;
+
+        const denominatorGap = Math.min(...denominator.map(component => component.y0)) - band.y1;
+        if (denominatorGap < Math.max(2, Math.round(dpr))) continue;
+        const all = [...numerator, ...denominator];
+        const x0 = Math.min(band.x0, ...all.map(component => component.x0));
+        const x1 = Math.max(band.x1, ...all.map(component => component.x1));
+        const y0 = Math.min(...numerator.map(component => component.y0));
+        const y1 = Math.max(...denominator.map(component => component.y1));
+        if (verticalBridge && denominatorGap <= Math.max(3 * dpr, band.h * 0.50)) continue;
+        if (y1 - y0 + 1 < band.w * 1.25) continue;
+        candidates.push({
+          band, numerator, denominator, x0, x1, y0, y1,
+          w: x1 - x0 + 1,
+          h: y1 - y0 + 1,
+          score: band.w + numerator.reduce((sum, component) => sum + component.area, 0) +
+            denominator.reduce((sum, component) => sum + component.area, 0)
+        });
+      }
+
+      const selected = [];
+      for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
+        const duplicate = selected.some(existing => {
+          const overlapX = Math.max(0, Math.min(candidate.x1, existing.x1) - Math.max(candidate.x0, existing.x0) + 1);
+          const overlapY = Math.max(0, Math.min(candidate.y1, existing.y1) - Math.max(candidate.y0, existing.y0) + 1);
+          const overlapArea = overlapX * overlapY;
+          return overlapArea > Math.min(candidate.w * candidate.h, existing.w * existing.h) * 0.35;
+        });
+        if (!duplicate) selected.push(candidate);
+      }
+      return selected.sort((a, b) => a.x0 - b.x0);
     },
 
     segmentStrokeClusters(w, h, strokeIndexes = null) {
@@ -886,7 +1095,9 @@ document.addEventListener('DOMContentLoaded', () => {
       // An equals sign is a short, wide glyph. The previous "two or more row
       // peaks" test also matched 2, 3 and 5 because those digits contain
       // several horizontal strokes.
-      if (!cl || cl.w < 8 || cl.w / Math.max(1, cl.h) < 1.35) return false;
+      // Leave room for equals signs whose two strokes are spaced unusually
+      // far apart; the two-band checks below still reject tall digits.
+      if (!cl || cl.w < 8 || cl.w / Math.max(1, cl.h) < 0.90) return false;
       try {
         const srcData = ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h);
         const rowCounts = new Int32Array(cl.h);
@@ -1005,15 +1216,24 @@ document.addEventListener('DOMContentLoaded', () => {
     },
 
     analyzeClusterShape(cl) {
-      if (!cl || !this.ctx || cl.w < 1 || cl.h < 1) return { narrowOne: false, holes: [] };
+      if (!cl || !this.ctx || cl.w < 1 || cl.h < 1) {
+        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0 };
+      }
       try {
         const src = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
         const pw = cl.w + 2;
         const ph = cl.h + 2;
         const ink = new Uint8Array(pw * ph);
+        const rowCounts = new Int32Array(cl.h);
+        let minInkX = cl.w, maxInkX = -1, minInkY = cl.h, maxInkY = -1;
         for (let y = 0; y < cl.h; y++) {
           for (let x = 0; x < cl.w; x++) {
-            if (src[(y * cl.w + x) * 4 + 3] > 20) ink[(y + 1) * pw + x + 1] = 1;
+            if (src[(y * cl.w + x) * 4 + 3] > 20) {
+              ink[(y + 1) * pw + x + 1] = 1;
+              rowCounts[y]++;
+              minInkX = Math.min(minInkX, x); maxInkX = Math.max(maxInkX, x);
+              minInkY = Math.min(minInkY, y); maxInkY = Math.max(maxInkY, y);
+            }
           }
         }
 
@@ -1069,14 +1289,23 @@ document.addEventListener('DOMContentLoaded', () => {
           if (area >= minArea) holes.push({ area, centerY: sumY / area / cl.h });
         }
 
+        const inkWidth = Math.max(1, maxInkX - minInkX + 1);
+        const inkHeight = Math.max(1, maxInkY - minInkY + 1);
+        const bottomRows = Math.max(1, Math.ceil(inkHeight * 0.12));
+        let bottomEdgeWidth = 0;
+        for (let y = Math.max(minInkY, maxInkY - bottomRows + 1); y <= maxInkY; y++) {
+          bottomEdgeWidth = Math.max(bottomEdgeWidth, rowCounts[y] || 0);
+        }
+
         return {
           // Keep this deliberately strict: a handwritten 2 can also have a
           // narrow column footprint when its strokes do not overlap perfectly.
           narrowOne: cl.w / Math.max(1, cl.h) < 0.18 && holes.length === 0,
-          holes: holes.sort((a, b) => b.area - a.area)
+          holes: holes.sort((a, b) => b.area - a.area),
+          bottomEdgeWidthRatio: bottomEdgeWidth / inkWidth
         };
       } catch(e) {
-        return { narrowOne: false, holes: [] };
+        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0 };
       }
     },
 
@@ -1224,9 +1453,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     resolveDigitFromShape(prediction, shape) {
       if (!prediction) return '';
-      // The trained classifier is the source of truth for digits. Earlier
-      // topology overrides changed open handwritten 5s into 8s and introduced
-      // more regressions than they fixed.
+      // A flat, full-width final stroke is categorical evidence for an open 2,
+      // while an 8 needs at least one enclosed loop. This also handles small
+      // superscript 2s that are out-of-distribution for the digit model.
+      if (prediction.digit === '8' && shape.holes.length === 0 && shape.bottomEdgeWidthRatio >= 0.62) {
+        return '2';
+      }
+      // A closed lower bowl distinguishes a looped 6 from an open 5. Keep the
+      // model for every other 5/6 shape so this rule cannot rewrite open glyphs.
+      if (prediction.digit === '5' && shape.holes.some(hole => hole.centerY >= 0.45)) {
+        return '6';
+      }
       return prediction.digit;
     },
 
@@ -1372,13 +1609,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const shape = this.analyzeClusterShape(cl);
         const digitPrediction = this.predictDigit(cl);
         const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
-        const rasterCross = this.isRasterCrossCluster(cl);
+        // Looped digits can have dense central rows and columns, but a plus or
+        // multiplication cross cannot enclose a hole.
+        const rasterCross = shape.holes.length === 0 && this.isRasterCrossCluster(cl);
+        const topologyCorrected = digitPrediction && predictedDigit !== digitPrediction.digit;
 
+        if (rasterCross) {
+          recognizedParts.push('+');
+          continue;
+        }
         if (cl.w / Math.max(1, cl.h) > 2.2) {
           recognizedParts.push('-');
           continue;
         }
-        if (!rasterCross && digitPrediction && digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12) {
+        if (digitPrediction &&
+            (topologyCorrected || (digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12))) {
           recognizedParts.push(predictedDigit);
           continue;
         }
@@ -1401,11 +1646,113 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const cleaned = this.cleanOCRText(res.data.text || '');
         const recognizedOperator = cleaned.replace(/[0-9]/g, '');
-        if (recognizedOperator) recognizedParts.push(recognizedOperator);
+        const onlyParentheses = /^[()]+$/.test(recognizedOperator);
+        const broadOrLoopedDigit = cl.w / Math.max(1, cl.h) >= 0.55 || shape.holes.length > 0;
+        if (recognizedOperator && !(onlyParentheses && predictedDigit && broadOrLoopedDigit)) {
+          recognizedParts.push(recognizedOperator);
+        }
         else if (predictedDigit) recognizedParts.push(predictedDigit);
         else recognizedParts.push('?');
       }
       return recognizedParts;
+    },
+
+    async tryRecognizeStructuredMath(w, h) {
+      const components = this.getInkComponents(w, h);
+      if (components.length < 2) return '';
+      const bands = this.findHorizontalInkBands(w, h);
+      const fractions = this.findFractionLayouts(w, h, components, bands);
+      const usedComponentIds = new Set();
+
+      for (const fraction of fractions) {
+        const xPadding = Math.max(2, fraction.w * 0.08);
+        for (const component of components) {
+          const insideX = component.cx >= fraction.x0 - xPadding && component.cx <= fraction.x1 + xPadding;
+          const overlapsY = component.y1 >= fraction.y0 && component.y0 <= fraction.y1;
+          if (insideX && overlapsY) usedComponentIds.add(component.id);
+        }
+      }
+
+      const remaining = components.filter(component => !usedComponentIds.has(component.id));
+      const dpr = window.devicePixelRatio || 1;
+      const glyphHeight = this.estimateInkGlyphHeight(remaining.length ? remaining : components);
+      const glyphLike = remaining.filter(component =>
+        component.h >= Math.max(7 * dpr, glyphHeight * 0.25) &&
+        component.w / Math.max(1, component.h) < 2.6
+      );
+      const tallGlyphs = glyphLike.filter(component => component.h >= glyphHeight * 0.72);
+      const baselineY = tallGlyphs.length > 0
+        ? tallGlyphs.map(component => component.y1).sort((a, b) => a - b)[Math.floor(tallGlyphs.length / 2)]
+        : 0;
+      const exponentIds = new Set();
+      const exponentAttachments = [];
+
+      if (baselineY > 0) {
+        const exponentCandidates = glyphLike.filter(component =>
+          component.h <= glyphHeight * 0.72 &&
+          component.y1 < baselineY - glyphHeight * 0.25
+        );
+        for (const exponent of exponentCandidates) {
+          const bases = tallGlyphs.filter(base =>
+            base.id !== exponent.id &&
+            exponent.cx > base.cx &&
+            exponent.x0 <= base.x1 + glyphHeight * 0.65 &&
+            exponent.x1 >= base.cx &&
+            exponent.y1 <= base.y0 + glyphHeight * 0.08
+          ).sort((a, b) => Math.abs(exponent.x0 - a.x1) - Math.abs(exponent.x0 - b.x1));
+          if (bases.length === 0) continue;
+          exponentIds.add(exponent.id);
+          exponentAttachments.push({ base: bases[0], exponent });
+        }
+      }
+
+      if (fractions.length === 0 && exponentAttachments.length === 0) return '';
+
+      const nodes = [];
+      for (const fraction of fractions) {
+        const numeratorTokens = await this.recognizeClusters(this.componentsToClusters(fraction.numerator, w, h));
+        const denominatorTokens = await this.recognizeClusters(this.componentsToClusters(fraction.denominator, w, h));
+        const numerator = numeratorTokens.join('').replace(/\?/g, '');
+        const denominator = denominatorTokens.join('').replace(/\?/g, '');
+        if (!numerator || !denominator) continue;
+        const simpleNumerator = /^[0-9i]+$/.test(numerator);
+        const simpleDenominator = /^[0-9i]+$/.test(denominator);
+        const text = `${simpleNumerator ? numerator : `(${numerator})`}/${simpleDenominator ? denominator : `(${denominator})`}`;
+        nodes.push({ x0: fraction.x0, x1: fraction.x1, text });
+      }
+
+      const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
+      const mainClusters = this.componentsToClusters(mainComponents, w, h);
+      for (const cluster of mainClusters) {
+        const baseTokens = await this.recognizeClusters([cluster]);
+        let text = baseTokens.join('');
+        const attached = exponentAttachments
+          .filter(item => item.base.cx >= cluster.x0 && item.base.cx <= cluster.x1)
+          .map(item => item.exponent)
+          .sort((a, b) => a.x0 - b.x0);
+        if (attached.length > 0) {
+          const exponentTokens = [];
+          for (const exponentCluster of this.componentsToClusters(attached, w, h)) {
+            const exponentShape = this.analyzeClusterShape(exponentCluster);
+            const exponentPrediction = this.predictDigit(exponentCluster);
+            // A tiny handwritten 2 can close its upper hook into a small loop.
+            // Limit this override to the superscript role so an ordinary 8 can
+            // never be rewritten merely because its lower loop is open.
+            if (exponentPrediction && ['2', '8', '9'].includes(exponentPrediction.digit) &&
+                exponentShape.bottomEdgeWidthRatio >= 0.62 &&
+                exponentShape.holes.every(hole => hole.centerY < 0.45)) {
+              exponentTokens.push('2');
+            } else {
+              exponentTokens.push(...await this.recognizeClusters([exponentCluster]));
+            }
+          }
+          const exponent = exponentTokens.join('').replace(/[^0-9]/g, '');
+          if (exponent) text += exponent.length === 1 ? `^${exponent}` : `^(${exponent})`;
+        }
+        if (text) nodes.push({ x0: cluster.x0, x1: cluster.x1, text });
+      }
+
+      return nodes.sort((a, b) => a.x0 - b.x0).map(node => node.text).join(' ');
     },
 
     async tryRecognizeRasterSigma(w, h) {
@@ -1679,6 +2026,11 @@ document.addEventListener('DOMContentLoaded', () => {
               const spatialSigma = await this.tryRecognizeRasterSigma(w, h);
               if (spatialSigma) {
                 exprInput.value = spatialSigma;
+                return;
+              }
+              const structuredMath = await this.tryRecognizeStructuredMath(w, h);
+              if (structuredMath) {
+                exprInput.value = structuredMath;
                 return;
               }
               const strokeClusters = this.segmentStrokeClusters(w, h);
