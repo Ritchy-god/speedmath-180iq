@@ -1138,16 +1138,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     resolveDigitFromShape(prediction, shape) {
       if (!prediction) return '';
-      let digit = prediction.digit;
-      const lowConfidence = prediction.confidence < 0.65 || prediction.margin < 0.15;
-      if (lowConfidence && shape && shape.holes.length >= 2 && ['0', '5', '6', '8', '9'].includes(digit)) {
-        return '8';
-      }
-      if (lowConfidence && shape && shape.holes.length === 1 && ['0', '5', '6', '8', '9'].includes(digit)) {
-        const loopY = shape.holes[0].centerY;
-        digit = loopY > 0.54 ? '6' : (loopY < 0.46 ? '9' : '0');
-      }
-      return digit;
+      // The trained classifier is the source of truth for digits. Earlier
+      // topology overrides changed open handwritten 5s into 8s and introduced
+      // more regressions than they fixed.
+      return prediction.digit;
     },
 
     cropClusterToCanvas(cl) {
