@@ -469,6 +469,10 @@ document.addEventListener('DOMContentLoaded', () => {
     color: '#ffffff',
     lineWidth: 3,
     isEraser: false,
+    digitModel: null,
+    strokes: [],
+    currentStroke: null,
+    strokeTrackingValid: true,
 
     init() {
       this.canvas = document.getElementById('scratchpad-canvas');
@@ -529,6 +533,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const pos = this.getPos(e);
       this.lastX = pos.x;
       this.lastY = pos.y;
+      if (this.isEraser) {
+        this.currentStroke = null;
+        this.strokeTrackingValid = false;
+      } else if (this.strokeTrackingValid) {
+        this.currentStroke = [pos];
+        this.strokes.push(this.currentStroke);
+      }
     },
 
     draw(e) {
@@ -557,12 +568,14 @@ document.addEventListener('DOMContentLoaded', () => {
         this.ctx.stroke();
         this.lastX = pos.x;
         this.lastY = pos.y;
+        if (this.currentStroke) this.currentStroke.push(pos);
       }
     },
 
     stopDrawing(e) {
       if (this.isDrawing) {
         this.isDrawing = false;
+        this.currentStroke = null;
         this.ctx.beginPath();
       }
     },
@@ -571,6 +584,9 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!this.canvas || !this.ctx) return;
       const dpr = window.devicePixelRatio || 1;
       this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+      this.strokes = [];
+      this.currentStroke = null;
+      this.strokeTrackingValid = true;
     },
 
     bindEvents() {
@@ -676,6 +692,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let inCluster = false;
         let startX = 0;
         let emptyCount = 0;
+        const gapThreshold = Math.max(5, Math.round((window.devicePixelRatio || 1) * 6));
 
         for (let x = 0; x < w; x++) {
           if (colCounts[x] > 0) {
@@ -687,10 +704,10 @@ document.addEventListener('DOMContentLoaded', () => {
           } else {
             if (inCluster) {
               emptyCount++;
-              if (emptyCount > 8 || x === w - 1) {
+              if (emptyCount > gapThreshold || x === w - 1) {
                 inCluster = false;
                 const endX = x - emptyCount;
-                if (endX - startX > 6) {
+                if (endX - startX + 1 > 1) {
                   clusters.push({ x0: startX, x1: endX });
                 }
               }
@@ -698,7 +715,7 @@ document.addEventListener('DOMContentLoaded', () => {
           }
         }
         if (inCluster) {
-          clusters.push({ x0: startX, x1: w });
+          clusters.push({ x0: startX, x1: w - 1 });
         }
 
         for (const cl of clusters) {
@@ -714,14 +731,66 @@ document.addEventListener('DOMContentLoaded', () => {
           }
           cl.y0 = minY;
           cl.y1 = maxY;
-          cl.w = cl.x1 - cl.x0;
-          cl.h = Math.max(1, maxY - minY);
+          cl.w = cl.x1 - cl.x0 + 1;
+          cl.h = Math.max(1, maxY - minY + 1);
         }
 
         return clusters;
       } catch(e) {
         return [];
       }
+    },
+
+    segmentStrokeClusters(w, h) {
+      if (!this.strokeTrackingValid || this.strokes.length === 0) return [];
+      const dpr = window.devicePixelRatio || 1;
+      const boxes = this.strokes.map(points => {
+        if (!points || points.length === 0) return null;
+        const xs = points.map(p => p.x * dpr);
+        const ys = points.map(p => p.y * dpr);
+        return {
+          x0: Math.min(...xs), x1: Math.max(...xs),
+          y0: Math.min(...ys), y1: Math.max(...ys)
+        };
+      }).filter(Boolean);
+      if (boxes.length === 0) return [];
+
+      // Strokes whose horizontal footprints overlap belong to the same glyph.
+      // This naturally joins +, =, ÷, i and multi-stroke digits while keeping
+      // neighbouring glyphs separate even when their visual gap is very small.
+      const parent = boxes.map((_, i) => i);
+      const find = (i) => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      const unite = (a, b) => {
+        const rootA = find(a), rootB = find(b);
+        if (rootA !== rootB) parent[rootB] = rootA;
+      };
+      for (let i = 0; i < boxes.length; i++) {
+        for (let j = i + 1; j < boxes.length; j++) {
+          const overlapX = Math.min(boxes[i].x1, boxes[j].x1) - Math.max(boxes[i].x0, boxes[j].x0);
+          if (overlapX >= 0) unite(i, j);
+        }
+      }
+
+      const groups = new Map();
+      boxes.forEach((box, i) => {
+        const root = find(i);
+        if (!groups.has(root)) groups.set(root, []);
+        groups.get(root).push(box);
+      });
+      const padding = Math.max(2, Math.round(3 * dpr));
+      return Array.from(groups.values()).map(group => {
+        const x0 = Math.max(0, Math.floor(Math.min(...group.map(b => b.x0)) - padding));
+        const y0 = Math.max(0, Math.floor(Math.min(...group.map(b => b.y0)) - padding));
+        const x1 = Math.min(w - 1, Math.ceil(Math.max(...group.map(b => b.x1)) + padding));
+        const y1 = Math.min(h - 1, Math.ceil(Math.max(...group.map(b => b.y1)) + padding));
+        return { x0, y0, x1, y1, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+      }).sort((a, b) => a.x0 - b.x0);
     },
 
     isEqualsSignCluster(cl, ctx) {
@@ -755,6 +824,87 @@ document.addEventListener('DOMContentLoaded', () => {
         const secondHeight = bands[1].y1 - bands[1].y0 + 1;
         const gap = bands[1].y0 - bands[0].y1 - 1;
         return gap > 0 && firstHeight < cl.h * 0.45 && secondHeight < cl.h * 0.45;
+      } catch(e) {
+        return false;
+      }
+    },
+
+    classifyStrokeSymbol(cl) {
+      if (!cl || !this.strokeTrackingValid || this.strokes.length === 0) return '';
+      const dpr = window.devicePixelRatio || 1;
+      const candidates = this.strokes.map(points => {
+        if (!points || points.length === 0) return null;
+        const xs = points.map(p => p.x * dpr);
+        const ys = points.map(p => p.y * dpr);
+        const x0 = Math.min(...xs), x1 = Math.max(...xs);
+        const y0 = Math.min(...ys), y1 = Math.max(...ys);
+        return {
+          points, x0, x1, y0, y1,
+          w: x1 - x0, h: y1 - y0,
+          cx: (x0 + x1) / 2,
+          cy: (y0 + y1) / 2
+        };
+      }).filter(stroke => stroke &&
+        stroke.cx >= cl.x0 - 4 * dpr && stroke.cx <= cl.x1 + 4 * dpr &&
+        stroke.y1 >= cl.y0 - 4 * dpr && stroke.y0 <= cl.y1 + 4 * dpr
+      );
+      if (candidates.length === 0) return '';
+
+      const minLength = 8 * dpr;
+      const horizontal = candidates.filter(s => s.w >= minLength && s.w > s.h * 4);
+      const vertical = candidates.filter(s => s.h >= minLength && s.h > s.w * 4);
+      const dots = candidates.filter(s => s.w < minLength && s.h < minLength);
+
+      if (horizontal.length >= 2 && vertical.length === 0) return '=';
+      if (horizontal.length === 1 && dots.length >= 2) return '÷';
+      if (candidates.length === 2 && horizontal.length === 1 && vertical.length === 1) {
+        const crosses = horizontal.some(hLine => vertical.some(vLine =>
+          vLine.cx >= hLine.x0 - 4 * dpr && vLine.cx <= hLine.x1 + 4 * dpr &&
+          hLine.cy >= vLine.y0 - 4 * dpr && hLine.cy <= vLine.y1 + 4 * dpr
+        ));
+        if (crosses) return '+';
+      }
+      if (horizontal.length === 1 && candidates.length === 1) return '-';
+
+      const diagonals = candidates.filter(s => {
+        if (s.w < minLength || s.h < minLength || s.points.length < 2) return false;
+        const first = s.points[0];
+        const last = s.points[s.points.length - 1];
+        const dx = last.x - first.x;
+        const dy = last.y - first.y;
+        return Math.abs(dx) > 4 && Math.abs(dy) > 4 && Math.abs(dx / dy) > 0.35 && Math.abs(dx / dy) < 2.85;
+      });
+      if (diagonals.length >= 2) {
+        const slopes = diagonals.map(s => {
+          const first = s.points[0];
+          const last = s.points[s.points.length - 1];
+          return (last.y - first.y) / (last.x - first.x);
+        });
+        if (slopes.some(a => slopes.some(b => a * b < 0))) return '×';
+      }
+      return '';
+    },
+
+    isRasterCrossCluster(cl) {
+      if (!cl || !this.ctx || cl.w < 4 || cl.h < 4) return false;
+      try {
+        const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+        const rows = new Int32Array(cl.h);
+        const cols = new Int32Array(cl.w);
+        for (let y = 0; y < cl.h; y++) {
+          for (let x = 0; x < cl.w; x++) {
+            if (data[(y * cl.w + x) * 4 + 3] > 20) {
+              rows[y]++;
+              cols[x]++;
+            }
+          }
+        }
+        let rowIndex = 0, colIndex = 0;
+        for (let y = 1; y < rows.length; y++) if (rows[y] > rows[rowIndex]) rowIndex = y;
+        for (let x = 1; x < cols.length; x++) if (cols[x] > cols[colIndex]) colIndex = x;
+        const centralRow = rowIndex / cl.h > 0.18 && rowIndex / cl.h < 0.82;
+        const centralCol = colIndex / cl.w > 0.18 && colIndex / cl.w < 0.82;
+        return centralRow && centralCol && rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
       } catch(e) {
         return false;
       }
@@ -834,6 +984,162 @@ document.addEventListener('DOMContentLoaded', () => {
       } catch(e) {
         return { narrowOne: false, holes: [] };
       }
+    },
+
+    getDigitModel() {
+      if (this.digitModel) return this.digitModel;
+      const source = window.SPEEDMATH_DIGIT_MODEL;
+      if (!source) return null;
+
+      const decode = (encoded) => {
+        const binary = atob(encoded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        return new Float32Array(bytes.buffer);
+      };
+
+      this.digitModel = {
+        inputSize: source.inputSize,
+        hiddenSize: source.hiddenSize,
+        outputSize: source.outputSize,
+        w1: decode(source.w1),
+        b1: decode(source.b1),
+        w2: decode(source.w2),
+        b2: decode(source.b2)
+      };
+      return this.digitModel;
+    },
+
+    clusterToDigitInput(cl) {
+      if (!cl || !this.ctx) return null;
+      const sourceData = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+      let minX = cl.w, minY = cl.h, maxX = -1, maxY = -1;
+      for (let y = 0; y < cl.h; y++) {
+        for (let x = 0; x < cl.w; x++) {
+          if (sourceData[(y * cl.w + x) * 4 + 3] > 20) {
+            minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+            minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+          }
+        }
+      }
+      if (maxX < minX || maxY < minY) return null;
+      const glyphW = maxX - minX + 1;
+      const glyphH = maxY - minY + 1;
+      const sourceCanvas = document.createElement('canvas');
+      sourceCanvas.width = glyphW;
+      sourceCanvas.height = glyphH;
+      const sourceCtx = sourceCanvas.getContext('2d');
+      const image = sourceCtx.createImageData(glyphW, glyphH);
+      for (let y = 0; y < glyphH; y++) {
+        for (let x = 0; x < glyphW; x++) {
+          const sourceIndex = ((y + minY) * cl.w + x + minX) * 4;
+          const value = sourceData[sourceIndex + 3] > 20 ? 255 : 0;
+          const px = (y * glyphW + x) * 4;
+          image.data[px] = value;
+          image.data[px + 1] = value;
+          image.data[px + 2] = value;
+          image.data[px + 3] = 255;
+        }
+      }
+      sourceCtx.putImageData(image, 0, 0);
+
+      // MNIST digits occupy roughly a 20x20 box centered on a 28x28 image.
+      const target = document.createElement('canvas');
+      target.width = 28;
+      target.height = 28;
+      const targetCtx = target.getContext('2d');
+      targetCtx.fillStyle = '#000000';
+      targetCtx.fillRect(0, 0, 28, 28);
+      const scale = Math.min(20 / glyphW, 20 / glyphH);
+      const drawW = Math.max(1, Math.round(glyphW * scale));
+      const drawH = Math.max(1, Math.round(glyphH * scale));
+      const offsetX = Math.floor((28 - drawW) / 2);
+      const offsetY = Math.floor((28 - drawH) / 2);
+      targetCtx.imageSmoothingEnabled = true;
+      targetCtx.imageSmoothingQuality = 'high';
+      targetCtx.drawImage(sourceCanvas, offsetX, offsetY, drawW, drawH);
+
+      const pixels = targetCtx.getImageData(0, 0, 28, 28).data;
+      let mass = 0, weightedX = 0, weightedY = 0;
+      for (let y = 0; y < 28; y++) {
+        for (let x = 0; x < 28; x++) {
+          const value = pixels[(y * 28 + x) * 4] / 255;
+          mass += value;
+          weightedX += x * value;
+          weightedY += y * value;
+        }
+      }
+      const shiftX = mass > 0 ? Math.round(13.5 - weightedX / mass) : 0;
+      const shiftY = mass > 0 ? Math.round(13.5 - weightedY / mass) : 0;
+      const input = new Float32Array(784);
+      for (let y = 0; y < 28; y++) {
+        for (let x = 0; x < 28; x++) {
+          const sourceX = x - shiftX;
+          const sourceY = y - shiftY;
+          if (sourceX >= 0 && sourceX < 28 && sourceY >= 0 && sourceY < 28) {
+            input[y * 28 + x] = pixels[(sourceY * 28 + sourceX) * 4] / 255;
+          }
+        }
+      }
+      return input;
+    },
+
+    predictDigit(cl) {
+      const model = this.getDigitModel();
+      const input = this.clusterToDigitInput(cl);
+      if (!model || !input) return null;
+
+      const hidden = new Float32Array(model.hiddenSize);
+      for (let j = 0; j < model.hiddenSize; j++) {
+        let value = model.b1[j];
+        for (let i = 0; i < model.inputSize; i++) {
+          value += input[i] * model.w1[i * model.hiddenSize + j];
+        }
+        hidden[j] = Math.max(0, value);
+      }
+
+      const logits = new Float32Array(model.outputSize);
+      let maxLogit = -Infinity;
+      for (let k = 0; k < model.outputSize; k++) {
+        let value = model.b2[k];
+        for (let j = 0; j < model.hiddenSize; j++) {
+          value += hidden[j] * model.w2[j * model.outputSize + k];
+        }
+        logits[k] = value;
+        if (value > maxLogit) maxLogit = value;
+      }
+
+      let total = 0;
+      const probabilities = new Float32Array(model.outputSize);
+      for (let k = 0; k < model.outputSize; k++) {
+        probabilities[k] = Math.exp(logits[k] - maxLogit);
+        total += probabilities[k];
+      }
+      const ranked = Array.from(probabilities, (value, digit) => ({
+        digit,
+        confidence: value / total
+      })).sort((a, b) => b.confidence - a.confidence);
+
+      return {
+        digit: String(ranked[0].digit),
+        confidence: ranked[0].confidence,
+        margin: ranked[0].confidence - ranked[1].confidence,
+        alternatives: ranked.slice(0, 3)
+      };
+    },
+
+    resolveDigitFromShape(prediction, shape) {
+      if (!prediction) return '';
+      let digit = prediction.digit;
+      const lowConfidence = prediction.confidence < 0.65 || prediction.margin < 0.15;
+      if (lowConfidence && shape && shape.holes.length >= 2 && ['0', '5', '6', '8', '9'].includes(digit)) {
+        return '8';
+      }
+      if (lowConfidence && shape && shape.holes.length === 1 && ['0', '5', '6', '8', '9'].includes(digit)) {
+        const loopY = shape.holes[0].centerY;
+        digit = loopY > 0.54 ? '6' : (loopY < 0.46 ? '9' : '0');
+      }
+      return digit;
     },
 
     cropClusterToCanvas(cl) {
@@ -1032,48 +1338,26 @@ document.addEventListener('DOMContentLoaded', () => {
           ocrBtn.textContent = '⏳ กำลังอ่าน...';
 
           try {
-            if (window.Tesseract) {
+            if (window.Tesseract || window.SPEEDMATH_DIGIT_MODEL) {
               // getImageData/cropping uses backing-store pixels, not CSS pixels.
               // Dividing these values by DPR made Retina/mobile devices OCR only
               // the top-left portion of the writing and shifted every crop.
               const w = this.canvas.width;
               const h = this.canvas.height;
-              const clusters = this.segmentAndRecognizeClusters(this.ctx, w, h);
+              const strokeClusters = this.segmentStrokeClusters(w, h);
+              const clusters = strokeClusters.length > 0
+                ? strokeClusters
+                : this.segmentAndRecognizeClusters(this.ctx, w, h);
 
               if (clusters.length > 0) {
-                // First try the complete one-line expression. Tesseract uses
-                // neighbouring characters as context and recognizes ordinary
-                // equations (2+3=5) much better this way than glyph by glyph.
-                const union = clusters.reduce((box, cl) => ({
-                  x0: Math.min(box.x0, cl.x0),
-                  y0: Math.min(box.y0, cl.y0),
-                  x1: Math.max(box.x1, cl.x1),
-                  y1: Math.max(box.y1, cl.y1),
-                  w: Math.max(box.x1, cl.x1) - Math.min(box.x0, cl.x0),
-                  h: Math.max(box.y1, cl.y1) - Math.min(box.y0, cl.y0)
-                }), { x0: w, y0: h, x1: 0, y1: 0, w: 0, h: 0 });
-
-                let fullLineText = '';
-                const looksLikeOneLine = union.h < h * 0.38 && union.w > union.h * 1.8;
-                if (looksLikeOneLine) {
-                  const lineCanvas = this.cropClusterToCanvas(union);
-                  const lineRes = await window.Tesseract.recognize(lineCanvas, 'eng', {
-                    tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
-                    tessedit_pageseg_mode: '7',
-                    preserve_interword_spaces: '1'
-                  });
-                  const candidate = this.cleanOCRText(lineRes.data.text || '');
-                  const digitCount = (candidate.match(/[0-9]/g) || []).length;
-                  if (digitCount >= 2 && /[+\-×÷=]/.test(candidate)) fullLineText = candidate;
-                }
-
-                if (fullLineText) {
-                  exprInput.value = fullLineText;
-                  return;
-                }
-
                 let recognizedParts = [];
                 for (const cl of clusters) {
+                  const strokeSymbol = this.classifyStrokeSymbol(cl);
+                  if (strokeSymbol) {
+                    recognizedParts.push(strokeSymbol);
+                    continue;
+                  }
+
                   // Check if cluster is equals sign =
                   if (this.isEqualsSignCluster(cl, this.ctx)) {
                     recognizedParts.push('=');
@@ -1081,8 +1365,27 @@ document.addEventListener('DOMContentLoaded', () => {
                   }
 
                   const shape = this.analyzeClusterShape(cl);
-                  if (shape.narrowOne) {
-                    recognizedParts.push('1');
+                  const digitPrediction = this.predictDigit(cl);
+                  const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
+                  const rasterCross = this.isRasterCrossCluster(cl);
+
+                  // A wide single band is reliably a minus and not a digit.
+                  if (cl.w / Math.max(1, cl.h) > 2.2) {
+                    recognizedParts.push('-');
+                    continue;
+                  }
+
+                  // The dedicated MNIST model is substantially more reliable
+                  // than printed-text OCR on handwritten digits. High-confidence
+                  // predictions are accepted immediately; ambiguous shapes such
+                  // as +, × and parentheses continue to the symbol recognizer.
+                  if (!rasterCross && digitPrediction && digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12) {
+                    recognizedParts.push(predictedDigit);
+                    continue;
+                  }
+
+                  if (!window.Tesseract) {
+                    recognizedParts.push(predictedDigit || '?');
                     continue;
                   }
 
@@ -1108,14 +1411,10 @@ document.addEventListener('DOMContentLoaded', () => {
                   } else {
                     let raw = res.data.text || '';
                     let cleaned = this.cleanOCRText(raw);
-                    // Tesseract commonly calls a handwritten 6 a 5. A genuine
-                    // 5 has no enclosed loop; use the loop position to recover
-                    // 6/9/0 when the visual evidence is strong.
-                    if (cleaned === '5' && shape.holes.length > 0) {
-                      const loopY = shape.holes[0].centerY;
-                      cleaned = loopY > 0.54 ? '6' : (loopY < 0.46 ? '9' : '0');
-                    }
-                    if (cleaned) recognizedParts.push(cleaned);
+                    const recognizedOperator = cleaned.replace(/[0-9]/g, '');
+                    if (recognizedOperator) recognizedParts.push(recognizedOperator);
+                    else if (predictedDigit) recognizedParts.push(predictedDigit);
+                    else recognizedParts.push('?');
                   }
                 }
 
