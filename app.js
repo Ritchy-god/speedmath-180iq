@@ -1123,7 +1123,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const firstHeight = bands[0].y1 - bands[0].y0 + 1;
         const secondHeight = bands[1].y1 - bands[1].y0 + 1;
         const gap = bands[1].y0 - bands[0].y1 - 1;
-        return gap > 0 && firstHeight < cl.h * 0.45 && secondHeight < cl.h * 0.45;
+        let blankRun = 0, longestBlankRun = 0;
+        for (let y = bands[0].y1 + 1; y < bands[1].y0; y++) {
+          if (rowCounts[y] === 0) {
+            blankRun++;
+            longestBlankRun = Math.max(longestBlankRun, blankRun);
+          } else {
+            blankRun = 0;
+          }
+        }
+        // The strokes of '=' are genuinely disconnected, leaving at least
+        // one completely blank row. A wide handwritten 2 can also have two
+        // strong horizontal bands, but its diagonal keeps every middle row
+        // connected with ink.
+        return gap > 0 && longestBlankRun > 0 &&
+          firstHeight < cl.h * 0.45 && secondHeight < cl.h * 0.45;
       } catch(e) {
         return false;
       }
@@ -1629,12 +1643,16 @@ document.addEventListener('DOMContentLoaded', () => {
     async recognizeClusters(clusters) {
       const recognizedParts = [];
       for (const cl of clusters) {
+        const rasterEquals = this.isEqualsSignCluster(cl, this.ctx);
         const strokeSymbol = this.classifyStrokeSymbol(cl);
-        if (strokeSymbol) {
+        // A multi-stroke 2 can contain two nearly horizontal pen strokes. Do
+        // not let that loose stroke heuristic bypass the digit model: '=' must
+        // also have two visibly disconnected raster bands.
+        if (strokeSymbol && (strokeSymbol !== '=' || rasterEquals)) {
           recognizedParts.push(strokeSymbol);
           continue;
         }
-        if (this.isEqualsSignCluster(cl, this.ctx)) {
+        if (rasterEquals) {
           recognizedParts.push('=');
           continue;
         }
