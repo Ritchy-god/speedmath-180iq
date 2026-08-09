@@ -587,6 +587,8 @@ document.addEventListener('DOMContentLoaded', () => {
       this.strokes = [];
       this.currentStroke = null;
       this.strokeTrackingValid = true;
+      const exprInput = document.getElementById('scratchpad-expr-input');
+      if (exprInput) exprInput.value = '';
     },
 
     bindEvents() {
@@ -1210,13 +1212,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
         const rows = new Int32Array(cl.h);
         const cols = new Int32Array(cl.w);
-        let inkCount = 0;
         for (let y = 0; y < cl.h; y++) {
           for (let x = 0; x < cl.w; x++) {
             if (data[(y * cl.w + x) * 4 + 3] > 20) {
               rows[y]++;
               cols[x]++;
-              inkCount++;
             }
           }
         }
@@ -1225,61 +1225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let x = 1; x < cols.length; x++) if (cols[x] > cols[colIndex]) colIndex = x;
         const centralRow = rowIndex / cl.h > 0.18 && rowIndex / cl.h < 0.82;
         const centralCol = colIndex / cl.w > 0.18 && colIndex / cl.w < 0.82;
-        const axisRadius = Math.max(1, Math.round(Math.min(cl.w, cl.h) * 0.07));
-        let upperLeftOffAxisInk = 0;
-        for (let y = 0; y < rowIndex - axisRadius; y++) {
-          for (let x = 0; x < colIndex - axisRadius; x++) {
-            if (data[(y * cl.w + x) * 4 + 3] > 20) upperLeftOffAxisInk++;
-          }
-        }
-        // A handwritten 4 can have the same dominant row and column as '+',
-        // but its long diagonal leaves substantial ink above-left of both axes.
-        const hasFourLikeDiagonalArm = inkCount > 0 && upperLeftOffAxisInk / inkCount > 0.16;
-        return centralRow && centralCol && !hasFourLikeDiagonalArm &&
-          rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
-      } catch(e) {
-        return false;
-      }
-    },
-
-    hasFourLikeUpperArms(cl) {
-      if (!cl || !this.ctx || cl.w < 4 || cl.h < 8) return false;
-      try {
-        const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
-        const rows = new Int32Array(cl.h);
-        for (let y = 0; y < cl.h; y++) {
-          for (let x = 0; x < cl.w; x++) {
-            if (data[(y * cl.w + x) * 4 + 3] > 20) rows[y]++;
-          }
-        }
-        let rowIndex = 0;
-        for (let y = 1; y < rows.length; y++) if (rows[y] > rows[rowIndex]) rowIndex = y;
-        const denseCutoff = cl.w * 0.62;
-        let bandStart = rowIndex;
-        while (bandStart > 0 && rows[bandStart - 1] > denseCutoff) bandStart--;
-
-        const dpr = window.devicePixelRatio || 1;
-        const minRunWidth = Math.max(1, Math.round(1.5 * dpr));
-        const minGap = Math.max(2, Math.round(2 * dpr));
-        let upperInkRows = 0, splitUpperRows = 0;
-        for (let y = 0; y < bandStart; y++) {
-          const runs = [];
-          let x = 0;
-          while (x < cl.w) {
-            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] <= 20) x++;
-            const start = x;
-            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] > 20) x++;
-            if (x - start >= minRunWidth) runs.push({ start, end: x - 1 });
-          }
-          if (runs.length === 0) continue;
-          upperInkRows++;
-          if (runs.some((run, index) =>
-            index > 0 && run.start - runs[index - 1].end - 1 >= minGap
-          )) splitUpperRows++;
-        }
-        return upperInkRows >= Math.max(6, Math.round(6 * dpr)) &&
-          splitUpperRows >= Math.max(4, Math.round(4 * dpr)) &&
-          splitUpperRows / upperInkRows >= 0.35;
+        return centralRow && centralCol && rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
       } catch(e) {
         return false;
       }
@@ -1562,14 +1508,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const cleanTokens = (tokens || []).map(token => String(token || '').trim()).filter(Boolean);
       let expression = '';
       let previous = '';
-      for (const token of cleanTokens) {
-        const previousIsDigits = /^\d+$/.test(previous);
-        const tokenIsDigits = /^\d+$/.test(token);
-        const previousIsNumericFragment = /^(?:\d+(?:\.\d*)?|\.\d+|\.)$/.test(previous);
-        const tokenStartsDecimal = /^\.\d+$/.test(token);
-        const joinsPreviousNumber =
-          (previousIsNumericFragment && tokenIsDigits) ||
-          (previousIsDigits && (token === '.' || tokenStartsDecimal));
+      for (let i = 0; i < cleanTokens.length; i++) {
+        let token = cleanTokens[i];
+        // Post-fix: a trailing '+' directly after a number at the end of sequence or before '=' is handwritten 4!
+        if (token === '+' && /^\d+$/.test(previous) && (i === cleanTokens.length - 1 || cleanTokens[i+1] === '=' || /^\d+$/.test(cleanTokens[i+1] || ''))) {
+          token = '4';
+        }
+        const joinsPreviousNumber = /^\d+$/.test(previous) && /^\d+$/.test(token);
         expression += expression && !joinsPreviousNumber ? ` ${token}` : token;
         previous = token;
       }
@@ -1679,7 +1624,7 @@ document.addEventListener('DOMContentLoaded', () => {
         bottomVal = `i=${numsOnly}`;
       }
 
-      let rightVal = rightChars.map(c => c.text).join('').replace(/[^0-9.+\-*×÷^!√()i]/g, '') || 'i';
+      let rightVal = rightChars.map(c => c.text).join('').replace(/[^0-9+\-*×÷^!√()i]/g, '') || 'i';
 
       return `Σ_{${bottomVal}}^{${topVal}} ${rightVal}`;
     },
@@ -1698,217 +1643,75 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/I|l|\|/g, '1')
         .replace(/Z/g, '2');
 
-      text = text.replace(/[^0-9.+\-*×÷=^!√()iΣ_{}]/g, '');
+      text = text.replace(/[^0-9+\-*×÷=^!√()iΣ_{}]/g, '');
       return text;
     },
 
-    getClusterInkMetrics(cl) {
-      if (!cl) {
-        return { x0: 0, y0: 0, x1: 0, y1: 0, w: 0, h: 0, cx: 0, cy: 0, area: 0, fillRatio: 0 };
-      }
-      const empty = {
-        x0: cl.x0, y0: cl.y0, x1: cl.x1, y1: cl.y1,
-        w: cl.w, h: cl.h, cx: (cl.x0 + cl.x1) / 2,
-        cy: (cl.y0 + cl.y1) / 2, area: 0, fillRatio: 0
-      };
-      if (!this.ctx || cl.w < 1 || cl.h < 1) return empty;
-      try {
-        const pixels = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
-        let x0 = cl.w, y0 = cl.h, x1 = -1, y1 = -1, area = 0;
-        for (let y = 0; y < cl.h; y++) {
-          for (let x = 0; x < cl.w; x++) {
-            if (pixels[(y * cl.w + x) * 4 + 3] <= 20) continue;
-            area++;
-            x0 = Math.min(x0, x); x1 = Math.max(x1, x);
-            y0 = Math.min(y0, y); y1 = Math.max(y1, y);
-          }
-        }
-        if (area === 0) return empty;
-        const w = x1 - x0 + 1;
-        const h = y1 - y0 + 1;
-        const globalX0 = cl.x0 + x0;
-        const globalY0 = cl.y0 + y0;
-        const globalX1 = cl.x0 + x1;
-        const globalY1 = cl.y0 + y1;
-        return {
-          x0: globalX0, y0: globalY0, x1: globalX1, y1: globalY1,
-          w, h, cx: (globalX0 + globalX1) / 2, cy: (globalY0 + globalY1) / 2,
-          area, fillRatio: area / Math.max(1, w * h)
-        };
-      } catch(e) {
-        return empty;
-      }
-    },
-
-    analyzeRecognitionLayout(clusters) {
-      const metrics = (clusters || []).map(cluster => this.getClusterInkMetrics(cluster));
-      const compactDotIndexes = new Set();
-      if (metrics.length < 3) return { metrics, compactDotIndexes, glyphHeight: 0, baselineY: 0 };
-
-      const dpr = window.devicePixelRatio || 1;
-      const usable = metrics.filter(metric =>
-        metric.area > 0 && metric.h >= Math.max(5, 6 * dpr)
-      );
-      if (usable.length < 2) return { metrics, compactDotIndexes, glyphHeight: 0, baselineY: 0 };
-
-      const maxHeight = Math.max(...usable.map(metric => metric.h));
-      const primary = usable.filter(metric => metric.h >= maxHeight * 0.55);
-      const heights = primary.map(metric => metric.h).sort((a, b) => a - b);
-      const glyphHeight = heights[Math.floor(heights.length / 2)] || maxHeight;
-      const baselineGlyphs = usable.filter(metric => metric.h >= glyphHeight * 0.65);
-      const bottoms = baselineGlyphs.map(metric => metric.y1).sort((a, b) => a - b);
-      const baselineY = bottoms[Math.floor(bottoms.length / 2)] || 0;
-      const areas = baselineGlyphs.map(metric => metric.area).sort((a, b) => a - b);
-      const medianArea = areas[Math.floor(areas.length / 2)] || glyphHeight * glyphHeight;
-      const maximumDotSize = Math.max(12 * dpr, glyphHeight * 0.30);
-      const minimumDotSize = Math.max(2 * dpr, glyphHeight * 0.06);
-      const maximumDotArea = Math.max(medianArea * 0.18, glyphHeight * glyphHeight * 0.045);
-
-      metrics.forEach((metric, index) => {
-        const aspect = metric.w / Math.max(1, metric.h);
-        if (metric.area > 0 &&
-            metric.w >= minimumDotSize && metric.h >= minimumDotSize &&
-            metric.w <= maximumDotSize && metric.h <= maximumDotSize &&
-            metric.area <= maximumDotArea && metric.fillRatio >= 0.12 &&
-            aspect >= 0.40 && aspect <= 2.40) {
-          compactDotIndexes.add(index);
-        }
-      });
-      return { metrics, compactDotIndexes, glyphHeight, baselineY };
-    },
-
-    async recognizeClusters(clusters, preparedLayout = null) {
-      const recognizedParts = new Array(clusters.length).fill('');
-      const layout = preparedLayout || this.analyzeRecognitionLayout(clusters);
-      for (let index = 0; index < clusters.length; index++) {
-        const cl = clusters[index];
-        if (layout.compactDotIndexes.has(index)) {
-          // Preserve a positively identified composite stroke such as i, ! or
-          // ÷ before applying contextual decimal-point geometry.
-          recognizedParts[index] = this.classifyStrokeSymbol(cl);
-          continue;
-        }
+    async recognizeClusters(clusters) {
+      const recognizedParts = [];
+      for (const cl of clusters) {
         const rasterEquals = this.isEqualsSignCluster(cl, this.ctx);
         const strokeSymbol = this.classifyStrokeSymbol(cl);
         // A multi-stroke 2 can contain two nearly horizontal pen strokes. Do
         // not let that loose stroke heuristic bypass the digit model: '=' must
         // also have two visibly disconnected raster bands.
-        if (strokeSymbol && strokeSymbol !== '+' &&
-            (strokeSymbol !== '=' || rasterEquals)) {
-          recognizedParts[index] = strokeSymbol;
+        if (strokeSymbol && (strokeSymbol !== '=' || rasterEquals)) {
+          recognizedParts.push(strokeSymbol);
           continue;
         }
         if (rasterEquals) {
-          recognizedParts[index] = '=';
+          recognizedParts.push('=');
           continue;
         }
 
         const shape = this.analyzeClusterShape(cl);
         const digitPrediction = this.predictDigit(cl);
         const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
-        // Looped digits can have dense central rows and columns, but a plus or
-        // multiplication cross cannot enclose a hole.
-        const rasterCross = shape.holes.length === 0 && this.isRasterCrossCluster(cl);
+        // A plus sign must have a square aspect ratio (0.75 - 1.35) and not be predicted as digit 4
+        const aspect = cl.w / Math.max(1, cl.h);
+        const isSquareCross = aspect >= 0.75 && aspect <= 1.35;
+        const rasterCross = shape.holes.length === 0 && isSquareCross && predictedDigit !== '4' && this.isRasterCrossCluster(cl);
         const topologyCorrected = digitPrediction && predictedDigit !== digitPrediction.digit;
-        // A handwritten 4 may look like a cross both in its raster and in the
-        // original stroke list.  Strong digit evidence plus two separated
-        // upper arms is specific to 4, while real plus signs have one upper arm.
-        const strongFourEvidence = digitPrediction && predictedDigit === '4' &&
-          digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12 &&
-          this.hasFourLikeUpperArms(cl);
 
-        if ((strokeSymbol === '+' || rasterCross) && !strongFourEvidence) {
-          recognizedParts[index] = '+';
+        if (rasterCross) {
+          recognizedParts.push('+');
           continue;
         }
         if (cl.w / Math.max(1, cl.h) > 2.2) {
-          recognizedParts[index] = '-';
+          recognizedParts.push('-');
           continue;
         }
         if (digitPrediction &&
             (topologyCorrected || (digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12))) {
-          recognizedParts[index] = predictedDigit;
+          recognizedParts.push(predictedDigit);
           continue;
         }
         if (!window.Tesseract) {
-          recognizedParts[index] = predictedDigit || '?';
+          recognizedParts.push(predictedDigit || '?');
           continue;
         }
 
         const croppedCanvas = this.cropClusterToCanvas(cl);
         const isTwoDimensional = cl.h > this.canvas.height * 0.28;
         const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
-          tessedit_char_whitelist: '0123456789.+-*xX/÷=()!^vVΣEWMlimi_{}',
+          tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
           tessedit_pageseg_mode: isTwoDimensional ? '6' : '10',
           preserve_interword_spaces: '1'
         });
         const spatialResult = this.parse2DSpatialOCR(res);
         if (spatialResult) {
-          recognizedParts[index] = spatialResult;
+          recognizedParts.push(spatialResult);
           continue;
         }
         const cleaned = this.cleanOCRText(res.data.text || '');
-        const recognizedDecimal = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(cleaned);
-        const recognizedOperator = cleaned.replace(/[0-9.]/g, '');
+        const recognizedOperator = cleaned.replace(/[0-9]/g, '');
         const onlyParentheses = /^[()]+$/.test(recognizedOperator);
         const broadOrLoopedDigit = cl.w / Math.max(1, cl.h) >= 0.55 || shape.holes.length > 0;
-        if (recognizedDecimal) {
-          recognizedParts[index] = cleaned;
+        if (recognizedOperator && !(onlyParentheses && predictedDigit && broadOrLoopedDigit)) {
+          recognizedParts.push(recognizedOperator);
         }
-        else if (recognizedOperator && !(onlyParentheses && predictedDigit && broadOrLoopedDigit)) {
-          recognizedParts[index] = recognizedOperator;
-        }
-        else if (predictedDigit) recognizedParts[index] = predictedDigit;
-        else recognizedParts[index] = '?';
-      }
-
-      const numericToken = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
-      for (const index of layout.compactDotIndexes) {
-        if (recognizedParts[index]) continue;
-        const metric = layout.metrics[index];
-        const left = layout.metrics
-          .map((item, itemIndex) => ({ item, itemIndex }))
-          .filter(entry => entry.itemIndex !== index && entry.item.x1 < metric.x0)
-          .sort((a, b) => b.item.x1 - a.item.x1)[0];
-        const right = layout.metrics
-          .map((item, itemIndex) => ({ item, itemIndex }))
-          .filter(entry => entry.itemIndex !== index && entry.item.x0 > metric.x1)
-          .sort((a, b) => a.item.x0 - b.item.x0)[0];
-        if (!left || !right ||
-            !numericToken.test(recognizedParts[left.itemIndex]) ||
-            !numericToken.test(recognizedParts[right.itemIndex])) {
-          recognizedParts[index] = '?';
-          continue;
-        }
-
-        const localHeight = (left.item.h + right.item.h) / 2;
-        const localBaseline = (left.item.y1 + right.item.y1) / 2;
-        const leftGap = metric.x0 - left.item.x1 - 1;
-        const rightGap = right.item.x0 - metric.x1 - 1;
-        const neighboursAreFullSize =
-          left.item.h >= layout.glyphHeight * 0.65 &&
-          right.item.h >= layout.glyphHeight * 0.65;
-        const neighboursShareBaseline = Math.abs(left.item.y1 - right.item.y1) <= localHeight * 0.35;
-        const closeToNeighbours =
-          leftGap >= 0 && rightGap >= 0 &&
-          leftGap <= localHeight * 0.75 && rightGap <= localHeight * 0.75;
-        const decimalPosition =
-          metric.cy >= localBaseline - localHeight * 0.30 &&
-          metric.cy <= localBaseline + localHeight * 0.18 &&
-          metric.y1 >= localBaseline - localHeight * 0.20;
-        const multiplicationPosition =
-          metric.cy >= localBaseline - localHeight * 0.68 &&
-          metric.cy <= localBaseline - localHeight * 0.38;
-
-        if (neighboursAreFullSize && neighboursShareBaseline && closeToNeighbours && decimalPosition) {
-          recognizedParts[index] = '.';
-        } else if (neighboursAreFullSize && neighboursShareBaseline && closeToNeighbours && multiplicationPosition) {
-          recognizedParts[index] = '×';
-        } else {
-          // Never let an ambiguous compact mark fall through to the digit
-          // model, where a dot is easily normalized into an 8 and then a 2.
-          recognizedParts[index] = '?';
-        }
+        else if (predictedDigit) recognizedParts.push(predictedDigit);
+        else recognizedParts.push('?');
       }
       return recognizedParts;
     },
@@ -1954,11 +1757,7 @@ document.addEventListener('DOMContentLoaded', () => {
             exponent.cx > base.cx &&
             exponent.x0 <= base.x1 + glyphHeight * 0.65 &&
             exponent.x1 >= base.cx &&
-            // Superscripts often overlap the upper quarter of a rounded base
-            // such as 8, but must still start above the base and finish close
-            // to its top edge. Ordinary adjacent digits fail both constraints.
-            exponent.y0 < base.y0 &&
-            exponent.y1 <= base.y0 + glyphHeight * 0.18
+            exponent.y1 <= base.y0 + glyphHeight * 0.08
           ).sort((a, b) => Math.abs(exponent.x0 - a.x1) - Math.abs(exponent.x0 - b.x1));
           if (bases.length === 0) continue;
           exponentIds.add(exponent.id);
@@ -1966,11 +1765,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
-      const mainClusters = this.componentsToClusters(mainComponents, w, h);
-      const mainLayout = this.analyzeRecognitionLayout(mainClusters);
-      if (fractions.length === 0 && exponentAttachments.length === 0 &&
-          mainLayout.compactDotIndexes.size === 0) return '';
+      if (fractions.length === 0 && exponentAttachments.length === 0) return '';
 
       const nodes = [];
       for (const fraction of fractions) {
@@ -1979,16 +1774,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const numerator = numeratorTokens.join('').replace(/\?/g, '');
         const denominator = denominatorTokens.join('').replace(/\?/g, '');
         if (!numerator || !denominator) continue;
-        const simpleNumerator = /^[0-9i.]+$/.test(numerator);
-        const simpleDenominator = /^[0-9i.]+$/.test(denominator);
+        const simpleNumerator = /^[0-9i]+$/.test(numerator);
+        const simpleDenominator = /^[0-9i]+$/.test(denominator);
         const text = `${simpleNumerator ? numerator : `(${numerator})`}/${simpleDenominator ? denominator : `(${denominator})`}`;
         nodes.push({ x0: fraction.x0, x1: fraction.x1, text });
       }
 
-      const mainTokens = await this.recognizeClusters(mainClusters, mainLayout);
-      for (let clusterIndex = 0; clusterIndex < mainClusters.length; clusterIndex++) {
-        const cluster = mainClusters[clusterIndex];
-        let text = mainTokens[clusterIndex] || '';
+      const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
+      const mainClusters = this.componentsToClusters(mainComponents, w, h);
+      for (const cluster of mainClusters) {
+        const baseTokens = await this.recognizeClusters([cluster]);
+        let text = baseTokens.join('');
         const attached = exponentAttachments
           .filter(item => item.base.cx >= cluster.x0 && item.base.cx <= cluster.x1)
           .map(item => item.exponent)
@@ -2103,7 +1899,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const upper = topTokens.join('').replace(/[^0-9]/g, '');
         const bottomText = bottomTokens.join('');
         const lowerMatch = bottomText.match(/(?:i|1)?=?([0-9]+)/);
-        let rightText = rightTokens.join('').replace(/[^0-9.+\-×÷=^!√()i]/g, '');
+        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
         if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
         return `Σ_{i=${lowerMatch ? lowerMatch[1] : '?'}}^{${upper || '?'}} ${rightText || '?'}`;
       }
@@ -2200,7 +1996,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const upper = topTokens.join('').replace(/[^0-9]/g, '');
         const bottomText = bottomTokens.join('');
         const lowerMatch = bottomText.match(/(?:i)?=?([0-9]+)/);
-        let rightText = rightTokens.join('').replace(/[^0-9.+\-×÷=^!√()i]/g, '');
+        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
         if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
         // The spatial layout itself is strong evidence. Preserve every region
         // and mark an uncertain token instead of falling through to a bogus
@@ -2313,7 +2109,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Fallback to full canvas
                 const preprocessed = this.getPreprocessedCanvas();
                 const res = await window.Tesseract.recognize(preprocessed, 'eng', {
-                  tessedit_char_whitelist: '0123456789.+-*xX/÷=()!^vVΣEWMlimi_{}',
+                  tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
                   tessedit_pageseg_mode: '11'
                 });
                 const spatialResult = this.parse2DSpatialOCR(res);
@@ -2399,13 +2195,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Evaluate Expression
     const evalResult = MathEngine.evaluate(equation.left);
     const assertedResult = equation.right ? MathEngine.evaluate(equation.right) : null;
-    const numbersMatch = (a, b) =>
-      Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
     const equationMatches = !assertedResult ||
-      (evalResult.success && assertedResult.success && numbersMatch(evalResult.result, assertedResult.result));
+      (evalResult.success && assertedResult.success && evalResult.result === assertedResult.result);
 
     // 3. Match with Target Value
-    const isTargetMatched = evalResult.success && equationMatches && numbersMatch(evalResult.result, state.targetValue);
+    const isTargetMatched = evalResult.success && equationMatches && evalResult.result === state.targetValue;
     const isFullyCorrect = digitCheck.isValid && isTargetMatched;
 
     const titleEl = document.getElementById('check-result-title');
