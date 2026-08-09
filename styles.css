@@ -123,6 +123,30 @@ body {
   gap: 0.5rem;
 }
 
+/* Active state for the scratchpad toggle button */
+#btn-toggle-scratchpad.active {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #a5b4fc;
+}
+
+/* X close button on the scratchpad panel */
+.sp-close-btn {
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.3) !important;
+  color: #f87171 !important;
+  font-weight: bold;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.25rem 0.55rem !important;
+  min-width: unset;
+}
+
+.sp-close-btn:hover {
+  background: rgba(239, 68, 68, 0.28) !important;
+  border-color: rgba(239, 68, 68, 0.6) !important;
+}
+
 .btn-icon {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);

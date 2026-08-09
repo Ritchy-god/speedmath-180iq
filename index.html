@@ -32,6 +32,9 @@
       </div>
 
       <div class="header-controls">
+        <button id="btn-toggle-scratchpad" class="btn-icon" title="แสดง/ซ่อนกระดาษทด">
+          📝 <span id="scratchpad-toggle-text">แสดงกระดาษทด</span>
+        </button>
         <button id="btn-sound" class="btn-icon" title="เปิด/ปิด เสียง">
           🔊 <span id="sound-status-text">เปิดเสียง</span>
         </button>
@@ -126,7 +129,8 @@
         <button id="sp-color-pink" class="color-btn" style="background:#ff0844;" title="สีชมพู"></button>
         <button id="sp-color-green" class="color-btn" style="background:#00e676;" title="สีเขียว"></button>
         <button id="sp-btn-eraser" class="tool-btn" title="ยางลบ">🧹 ยางลบ</button>
-        <button id="sp-btn-clear" class="tool-btn danger" title="ล้างกระดาษทด">🗑️ ล้าง</button>
+        <button id="sp-btn-clear" class="tool-btn danger" title="ล้างกระดาษทด" onclick="var inp=document.getElementById('scratchpad-expr-input');if(inp){inp.value='';inp.blur();}">🗑️ ล้าง</button>
+        <button id="sp-btn-close" class="tool-btn sp-close-btn" title="ปิดกระดาษทด">✕</button>
       </div>
     </div>
     <div class="scratchpad-canvas-wrapper">
@@ -140,22 +144,7 @@
           ✨ แปลงลายมือ
         </button>
       </div>
-      <div class="quick-math-btn-row">
-        <button class="q-math-btn" data-sym="+">+</button>
-        <button class="q-math-btn" data-sym="-">-</button>
-        <button class="q-math-btn" data-sym="×">×</button>
-        <button class="q-math-btn" data-sym="÷">÷</button>
-        <button class="q-math-btn" data-sym="^">^</button>
-        <button class="q-math-btn" data-sym="√">√</button>
-        <button class="q-math-btn" data-sym="!">!</button>
-        <button class="q-math-btn highlight-sym" data-sym="Σ_{i=1}^{4} i" title="ใส่สัญลักษณ์ซิกมา Σ">Σ</button>
-        <button class="q-math-btn" data-sym="i">i</button>
-        <button class="q-math-btn" data-sym="=">=</button>
-        <button class="q-math-btn" data-sym="(">(</button>
-        <button class="q-math-btn" data-sym=")">)</button>
-        <button class="q-math-btn danger" id="sp-btn-input-clear" title="ล้างสมการ">C</button>
-      </div>
-      <button id="btn-check-answer" class="btn-icon btn-check-answer pulse-glow" style="display: none; width: 100%; justify-content: center; margin-top: 0.25rem; padding: 0.55rem;" title="ตรวจคำตอบเมื่อหมดเวลา">
+      <button id="btn-check-answer" class="btn-icon btn-check-answer pulse-glow" style="display: none; width: 100%; justify-content: center; margin-top: 0.35rem; padding: 0.6rem;" title="ตรวจคำตอบเมื่อหมดเวลา">
         🔍 ตรวจคำตอบ (หมดเวลา)
       </button>
     </div>
@@ -217,13 +206,7 @@
         </select>
       </div>
 
-      <div class="form-group">
-        <label class="form-label">กระดาษทดเลข (Scratchpad)</label>
-        <select id="select-scratchpad-mode" class="form-select">
-          <option value="show">แสดงกระดาษทด (มุมซ้ายล่าง)</option>
-          <option value="hide">ซ่อนกระดาษทด</option>
-        </select>
-      </div>
+
 
       <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
         <button id="btn-save-settings" class="btn-icon btn-highlight" style="width: 100%; justify-content: center;">
