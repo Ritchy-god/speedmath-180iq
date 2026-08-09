@@ -1210,11 +1210,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
         const rows = new Int32Array(cl.h);
         const cols = new Int32Array(cl.w);
+        let inkCount = 0;
         for (let y = 0; y < cl.h; y++) {
           for (let x = 0; x < cl.w; x++) {
             if (data[(y * cl.w + x) * 4 + 3] > 20) {
               rows[y]++;
               cols[x]++;
+              inkCount++;
             }
           }
         }
@@ -1223,7 +1225,61 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let x = 1; x < cols.length; x++) if (cols[x] > cols[colIndex]) colIndex = x;
         const centralRow = rowIndex / cl.h > 0.18 && rowIndex / cl.h < 0.82;
         const centralCol = colIndex / cl.w > 0.18 && colIndex / cl.w < 0.82;
-        return centralRow && centralCol && rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
+        const axisRadius = Math.max(1, Math.round(Math.min(cl.w, cl.h) * 0.07));
+        let upperLeftOffAxisInk = 0;
+        for (let y = 0; y < rowIndex - axisRadius; y++) {
+          for (let x = 0; x < colIndex - axisRadius; x++) {
+            if (data[(y * cl.w + x) * 4 + 3] > 20) upperLeftOffAxisInk++;
+          }
+        }
+        // A handwritten 4 can have the same dominant row and column as '+',
+        // but its long diagonal leaves substantial ink above-left of both axes.
+        const hasFourLikeDiagonalArm = inkCount > 0 && upperLeftOffAxisInk / inkCount > 0.16;
+        return centralRow && centralCol && !hasFourLikeDiagonalArm &&
+          rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
+      } catch(e) {
+        return false;
+      }
+    },
+
+    hasFourLikeUpperArms(cl) {
+      if (!cl || !this.ctx || cl.w < 4 || cl.h < 8) return false;
+      try {
+        const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+        const rows = new Int32Array(cl.h);
+        for (let y = 0; y < cl.h; y++) {
+          for (let x = 0; x < cl.w; x++) {
+            if (data[(y * cl.w + x) * 4 + 3] > 20) rows[y]++;
+          }
+        }
+        let rowIndex = 0;
+        for (let y = 1; y < rows.length; y++) if (rows[y] > rows[rowIndex]) rowIndex = y;
+        const denseCutoff = cl.w * 0.62;
+        let bandStart = rowIndex;
+        while (bandStart > 0 && rows[bandStart - 1] > denseCutoff) bandStart--;
+
+        const dpr = window.devicePixelRatio || 1;
+        const minRunWidth = Math.max(1, Math.round(1.5 * dpr));
+        const minGap = Math.max(2, Math.round(2 * dpr));
+        let upperInkRows = 0, splitUpperRows = 0;
+        for (let y = 0; y < bandStart; y++) {
+          const runs = [];
+          let x = 0;
+          while (x < cl.w) {
+            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] <= 20) x++;
+            const start = x;
+            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] > 20) x++;
+            if (x - start >= minRunWidth) runs.push({ start, end: x - 1 });
+          }
+          if (runs.length === 0) continue;
+          upperInkRows++;
+          if (runs.some((run, index) =>
+            index > 0 && run.start - runs[index - 1].end - 1 >= minGap
+          )) splitUpperRows++;
+        }
+        return upperInkRows >= Math.max(6, Math.round(6 * dpr)) &&
+          splitUpperRows >= Math.max(4, Math.round(4 * dpr)) &&
+          splitUpperRows / upperInkRows >= 0.35;
       } catch(e) {
         return false;
       }
@@ -1737,7 +1793,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // A multi-stroke 2 can contain two nearly horizontal pen strokes. Do
         // not let that loose stroke heuristic bypass the digit model: '=' must
         // also have two visibly disconnected raster bands.
-        if (strokeSymbol && (strokeSymbol !== '=' || rasterEquals)) {
+        if (strokeSymbol && strokeSymbol !== '+' &&
+            (strokeSymbol !== '=' || rasterEquals)) {
           recognizedParts[index] = strokeSymbol;
           continue;
         }
@@ -1753,8 +1810,14 @@ document.addEventListener('DOMContentLoaded', () => {
         // multiplication cross cannot enclose a hole.
         const rasterCross = shape.holes.length === 0 && this.isRasterCrossCluster(cl);
         const topologyCorrected = digitPrediction && predictedDigit !== digitPrediction.digit;
+        // A handwritten 4 may look like a cross both in its raster and in the
+        // original stroke list.  Strong digit evidence plus two separated
+        // upper arms is specific to 4, while real plus signs have one upper arm.
+        const strongFourEvidence = digitPrediction && predictedDigit === '4' &&
+          digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12 &&
+          this.hasFourLikeUpperArms(cl);
 
-        if (rasterCross) {
+        if ((strokeSymbol === '+' || rasterCross) && !strongFourEvidence) {
           recognizedParts[index] = '+';
           continue;
         }
