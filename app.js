@@ -1217,7 +1217,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     analyzeClusterShape(cl) {
       if (!cl || !this.ctx || cl.w < 1 || cl.h < 1) {
-        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0 };
+        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0, lowerInkWidthRatio: 0, inkAspectRatio: 0 };
       }
       try {
         const src = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
@@ -1296,16 +1296,29 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let y = Math.max(minInkY, maxInkY - bottomRows + 1); y <= maxInkY; y++) {
           bottomEdgeWidth = Math.max(bottomEdgeWidth, rowCounts[y] || 0);
         }
+        let lowerMinX = cl.w, lowerMaxX = -1;
+        const lowerStartY = minInkY + Math.floor(inkHeight * 0.60);
+        for (let y = lowerStartY; y <= maxInkY; y++) {
+          for (let x = minInkX; x <= maxInkX; x++) {
+            if (ink[(y + 1) * pw + x + 1]) {
+              lowerMinX = Math.min(lowerMinX, x);
+              lowerMaxX = Math.max(lowerMaxX, x);
+            }
+          }
+        }
+        const lowerInkWidth = lowerMaxX >= lowerMinX ? lowerMaxX - lowerMinX + 1 : 0;
 
         return {
           // Keep this deliberately strict: a handwritten 2 can also have a
           // narrow column footprint when its strokes do not overlap perfectly.
           narrowOne: cl.w / Math.max(1, cl.h) < 0.18 && holes.length === 0,
           holes: holes.sort((a, b) => b.area - a.area),
-          bottomEdgeWidthRatio: bottomEdgeWidth / inkWidth
+          bottomEdgeWidthRatio: bottomEdgeWidth / inkWidth,
+          lowerInkWidthRatio: lowerInkWidth / inkWidth,
+          inkAspectRatio: inkWidth / inkHeight
         };
       } catch(e) {
-        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0 };
+        return { narrowOne: false, holes: [], bottomEdgeWidthRatio: 0, lowerInkWidthRatio: 0, inkAspectRatio: 0 };
       }
     },
 
@@ -1464,7 +1477,27 @@ document.addEventListener('DOMContentLoaded', () => {
       if (prediction.digit === '5' && shape.holes.some(hole => hole.centerY >= 0.45)) {
         return '6';
       }
+      // An open 5 sometimes lands near 9 in the model when canvas antialiasing
+      // thins its middle stroke. A 9 has an upper loop and ends in a narrow
+      // tail; only choose 5 when there is no loop and the glyph has a broad
+      // lower finishing stroke.
+      if (prediction.digit === '9' && shape.holes.length === 0 &&
+          shape.lowerInkWidthRatio >= 0.70 && shape.inkAspectRatio <= 0.75) {
+        return '5';
+      }
       return prediction.digit;
+    },
+
+    formatRecognizedTokens(tokens) {
+      const cleanTokens = (tokens || []).map(token => String(token || '').trim()).filter(Boolean);
+      let expression = '';
+      let previous = '';
+      for (const token of cleanTokens) {
+        const joinsPreviousNumber = /^\d+$/.test(previous) && /^\d+$/.test(token);
+        expression += expression && !joinsPreviousNumber ? ` ${token}` : token;
+        previous = token;
+      }
+      return expression;
     },
 
     cropClusterToCanvas(cl) {
@@ -1752,7 +1785,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (text) nodes.push({ x0: cluster.x0, x1: cluster.x1, text });
       }
 
-      return nodes.sort((a, b) => a.x0 - b.x0).map(node => node.text).join(' ');
+      return this.formatRecognizedTokens(nodes.sort((a, b) => a.x0 - b.x0).map(node => node.text));
     },
 
     async tryRecognizeRasterSigma(w, h) {
@@ -2042,7 +2075,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const recognizedParts = await this.recognizeClusters(clusters);
 
                 if (recognizedParts.length > 0) {
-                  exprInput.value = recognizedParts.join(' ');
+                  exprInput.value = this.formatRecognizedTokens(recognizedParts);
                 } else {
                   alert('อ่านลายมือไม่ชัดเจน โปรดกดปุ่มสัญลักษณ์ด่วนด้านล่าง');
                 }
