@@ -49,6 +49,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btnRollDigits:        document.getElementById('btn-roll-digits'),
     btnRollTarget:        document.getElementById('btn-roll-target'),
     btnCheckAnswer:       document.getElementById('btn-check-answer'),
+    btnToggleScratchpad:  document.getElementById('btn-toggle-scratchpad'),
+    scratchpadToggleText: document.getElementById('scratchpad-toggle-text'),
+    btnCloseScratchpad:   document.getElementById('sp-btn-close'),
     btnSound:             document.getElementById('btn-sound'),
     soundStatusText:      document.getElementById('sound-status-text'),
     btnSettings:          document.getElementById('btn-settings'),
@@ -93,6 +96,8 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.btnRollDigits,        'click', doRollDigits);
     on(el.btnRollTarget,        'click', doRollTarget);
     on(el.btnCheckAnswer,       'click', doCheckAnswer);
+    on(el.btnToggleScratchpad,  'click', doToggleScratchpad);
+    on(el.btnCloseScratchpad,   'click', closeScratchpad);
     on(el.btnCloseCheckModal,   'click', closeCheckModal);
     on(el.btnConfirmCheckModal, 'click', closeCheckModal);
     on(el.btnSound,             'click', doToggleSound);
@@ -449,12 +454,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function updateScratchpadVisibility() {
     if (!el.scratchpadContainer) return;
-    if (state.scratchpadMode === 'show') {
+    const isVisible = state.scratchpadMode === 'show';
+    if (isVisible) {
       el.scratchpadContainer.style.display = 'flex';
       scratchpad.resizeCanvas();
     } else {
       el.scratchpadContainer.style.display = 'none';
     }
+    if (el.btnToggleScratchpad) {
+      el.btnToggleScratchpad.classList.toggle('active', isVisible);
+      el.btnToggleScratchpad.setAttribute('aria-expanded', String(isVisible));
+    }
+    if (el.scratchpadToggleText) {
+      el.scratchpadToggleText.textContent = isVisible ? 'ซ่อนกระดาษทด' : 'แสดงกระดาษทด';
+    }
+  }
+
+  function doToggleScratchpad() {
+    playClick();
+    state.scratchpadMode = state.scratchpadMode === 'show' ? 'hide' : 'show';
+    updateScratchpadVisibility();
+  }
+
+  function closeScratchpad() {
+    playClick();
+    state.scratchpadMode = 'hide';
+    updateScratchpadVisibility();
   }
 
   /* ==========================================================================
