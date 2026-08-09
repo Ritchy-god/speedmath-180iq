@@ -1061,6 +1061,60 @@ document.addEventListener('DOMContentLoaded', () => {
       return selected.sort((a, b) => a.x0 - b.x0);
     },
 
+    findRadicalLayouts(w, h, components, bands) {
+      if (!components.length || !bands.length) return [];
+      const dpr = window.devicePixelRatio || 1;
+      const glyphHeight = this.estimateInkGlyphHeight(components);
+      const minimumBarWidth = Math.max(18 * dpr, glyphHeight * 0.80);
+      const candidates = [];
+
+      for (const band of bands) {
+        if (band.w < minimumBarWidth) continue;
+        const hosts = components.filter(component => {
+          const overlap = Math.min(component.x1, band.x1) - Math.max(component.x0, band.x0) + 1;
+          const leftExtension = band.x0 - component.x0;
+          return component.y0 <= band.cy && component.y1 >= band.cy &&
+            overlap >= band.w * 0.65 &&
+            component.h >= glyphHeight * 0.75 &&
+            leftExtension >= glyphHeight * 0.12 &&
+            component.y1 >= band.y1 + glyphHeight * 0.55 &&
+            band.cy <= component.y0 + component.h * 0.28;
+        }).sort((a, b) =>
+          (band.x0 - b.x0) + (b.y1 - band.y1) -
+          ((band.x0 - a.x0) + (a.y1 - band.y1))
+        );
+        if (hosts.length === 0) continue;
+
+        const host = hosts[0];
+        const xTolerance = Math.max(3 * dpr, glyphHeight * 0.08);
+        const maximumBottom = Math.max(host.y1 + glyphHeight * 0.25, band.y1 + glyphHeight * 1.65);
+        const radicand = components.filter(component =>
+          component.id !== host.id &&
+          component.cx >= band.x0 - xTolerance && component.cx <= band.x1 + xTolerance &&
+          component.y0 >= band.y1 + Math.max(2 * dpr, glyphHeight * 0.08) &&
+          component.y1 <= maximumBottom &&
+          component.h >= Math.max(6 * dpr, glyphHeight * 0.20) &&
+          component.w / Math.max(1, component.h) < 2.6
+        );
+        if (radicand.length === 0) continue;
+
+        candidates.push({
+          band, host, radicand,
+          x0: host.x0,
+          x1: Math.max(band.x1, ...radicand.map(component => component.x1)),
+          y0: Math.min(host.y0, band.y0),
+          y1: Math.max(host.y1, ...radicand.map(component => component.y1)),
+          score: band.w + radicand.reduce((sum, component) => sum + component.area, 0)
+        });
+      }
+
+      const selected = [];
+      for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
+        if (!selected.some(existing => existing.host.id === candidate.host.id)) selected.push(candidate);
+      }
+      return selected.sort((a, b) => a.x0 - b.x0);
+    },
+
     segmentStrokeClusters(w, h, strokeIndexes = null) {
       if (!this.strokeTrackingValid || this.strokes.length === 0) return [];
       const dpr = window.devicePixelRatio || 1;
@@ -1262,6 +1316,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasFourLikeDiagonalArm = inkCount > 0 && upperLeftOffAxisInk / inkCount > 0.16;
         return centralRow && centralCol && !hasFourLikeDiagonalArm &&
           rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
+      } catch(e) {
+        return false;
+      }
+    },
+
+    isRasterMultiplicationCluster(cl) {
+      if (!cl || !this.ctx) return false;
+      const metric = this.getClusterInkMetrics(cl);
+      const aspect = metric.w / Math.max(1, metric.h);
+      if (metric.area < 12 || aspect < 0.65 || aspect > 1.55) return false;
+      const shape = this.analyzeClusterShape(cl);
+      if (shape.holes.length > 0) return false;
+      try {
+        const data = this.ctx.getImageData(metric.x0, metric.y0, metric.w, metric.h).data;
+        let ink = 0, diagonalInk = 0;
+        for (let y = 0; y < metric.h; y++) {
+          for (let x = 0; x < metric.w; x++) {
+            if (data[(y * metric.w + x) * 4 + 3] <= 20) continue;
+            ink++;
+            const nx = x / Math.max(1, metric.w - 1);
+            const ny = y / Math.max(1, metric.h - 1);
+            if (Math.min(Math.abs(nx - ny), Math.abs(nx + ny - 1)) <= 0.14) diagonalInk++;
+          }
+        }
+        return ink > 0 && diagonalInk / ink >= 0.57;
       } catch(e) {
         return false;
       }
@@ -1943,7 +2022,13 @@ document.addEventListener('DOMContentLoaded', () => {
       if (components.length < 2) return '';
       const bands = this.findHorizontalInkBands(w, h);
       const fractions = this.findFractionLayouts(w, h, components, bands);
+      const radicals = this.findRadicalLayouts(w, h, components, bands);
       const usedComponentIds = new Set();
+
+      for (const radical of radicals) {
+        usedComponentIds.add(radical.host.id);
+        radical.radicand.forEach(component => usedComponentIds.add(component.id));
+      }
 
       for (const fraction of fractions) {
         const xPadding = Math.max(2, fraction.w * 0.08);
@@ -1994,10 +2079,29 @@ document.addEventListener('DOMContentLoaded', () => {
       const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
       const mainClusters = this.componentsToClusters(mainComponents, w, h);
       const mainLayout = this.analyzeRecognitionLayout(mainClusters);
-      if (fractions.length === 0 && exponentAttachments.length === 0 &&
+      if (fractions.length === 0 && radicals.length === 0 && exponentAttachments.length === 0 &&
           mainLayout.compactDotIndexes.size === 0) return '';
 
       const nodes = [];
+      for (const radical of radicals) {
+        const radicandClusters = this.componentsToClusters(radical.radicand, w, h);
+        const radicandTokens = await this.recognizeClusters(radicandClusters);
+        for (let index = 1; index < radicandTokens.length - 1; index++) {
+          if (/^[0-9]+$/.test(radicandTokens[index - 1] || '') &&
+              /^[0-9]+$/.test(radicandTokens[index + 1] || '') &&
+              this.isRasterMultiplicationCluster(radicandClusters[index])) {
+            radicandTokens[index] = '×';
+          }
+        }
+        const radicand = radicandTokens.join('').replace(/\?/g, '');
+        if (!radicand) continue;
+        const simpleRadicand = /^[0-9i.]+$/.test(radicand);
+        nodes.push({
+          x0: radical.x0,
+          x1: radical.x1,
+          text: `√${simpleRadicand ? radicand : `(${radicand})`}`
+        });
+      }
       for (const fraction of fractions) {
         const numeratorTokens = await this.recognizeClusters(this.componentsToClusters(fraction.numerator, w, h));
         const denominatorTokens = await this.recognizeClusters(this.componentsToClusters(fraction.denominator, w, h));
