@@ -600,11 +600,12 @@ body {
   border-color: var(--accent-cyan);
 }
 
-/* Scratchpad Container (Fixed Bottom-Left) */
+/* Scratchpad Container (Fixed Middle-Left) */
 .scratchpad-container {
   position: fixed;
-  bottom: 1.5rem;
+  top: 50%;
   left: 1.5rem;
+  transform: translateY(-50%);
   width: 380px;
   max-width: calc(100vw - 3rem);
   background: rgba(18, 23, 32, 0.92);
