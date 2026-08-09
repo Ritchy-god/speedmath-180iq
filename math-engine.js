@@ -91,11 +91,20 @@ const MathEngine = {
         continue;
       }
 
-      if (/[0-9]/.test(char)) {
+      if (/[0-9]/.test(char) || (char === '.' && /[0-9]/.test(clean[i + 1] || ''))) {
         let numStr = '';
-        while (i < clean.length && /[0-9]/.test(clean[i])) {
-          numStr += clean[i];
-          i++;
+        let hasDecimalPoint = false;
+        while (i < clean.length) {
+          if (/[0-9]/.test(clean[i])) {
+            numStr += clean[i];
+            i++;
+          } else if (clean[i] === '.' && !hasDecimalPoint) {
+            hasDecimalPoint = true;
+            numStr += clean[i];
+            i++;
+          } else {
+            break;
+          }
         }
         tokens.push({ type: 'NUMBER', value: parseFloat(numStr) });
         continue;

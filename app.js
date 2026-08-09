@@ -56,8 +56,7 @@ document.addEventListener('DOMContentLoaded', () => {
     compItemCurr:         document.getElementById('comp-item-curr'),
     compItemTotal:        document.getElementById('comp-item-total'),
     scratchpadContainer:  document.getElementById('scratchpad-container'),
-    btnToggleScratchpad:  document.getElementById('btn-toggle-scratchpad'),
-    scratchpadToggleText: document.getElementById('scratchpad-toggle-text'),
+    selectScratchpadMode: document.getElementById('select-scratchpad-mode'),
     modalSettings:        document.getElementById('modal-settings'),
     btnCloseModal:        document.getElementById('btn-close-modal'),
     btnSaveSettings:      document.getElementById('btn-save-settings'),
@@ -105,10 +104,6 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.selectGameMode,       'change', onGameModeChange);
     on(el.modalSettings,        'click', (e) => { if (e.target === el.modalSettings) closeModal(); });
     on(el.modalCheckResult,     'click', (e) => { if (e.target === el.modalCheckResult) closeCheckModal(); });
-    // Toggle button: show/hide scratchpad
-    on(el.btnToggleScratchpad, 'click', toggleScratchpad);
-    // X button inside scratchpad panel
-    on(document.getElementById('sp-btn-close'), 'click', closeScratchpad);
   }
 
   function on(elem, event, fn) {
@@ -453,38 +448,14 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function updateScratchpadVisibility() {
-    const container = el.scratchpadContainer || document.getElementById('scratchpad-container');
-    if (!container) return;
-    const isShown = state.scratchpadMode === 'show';
-    container.style.display = isShown ? 'flex' : 'none';
-    if (isShown) {
+    if (!el.scratchpadContainer) return;
+    if (state.scratchpadMode === 'show') {
+      el.scratchpadContainer.style.display = 'flex';
       scratchpad.resizeCanvas();
-    }
-    // Sync toggle button text
-    const toggleText = document.getElementById('scratchpad-toggle-text');
-    if (toggleText) {
-      toggleText.textContent = isShown ? 'ซ่อนกระดาษทด' : 'แสดงกระดาษทด';
-    }
-    const toggleBtn = el.btnToggleScratchpad || document.getElementById('btn-toggle-scratchpad');
-    if (toggleBtn) {
-      toggleBtn.classList.toggle('active', isShown);
+    } else {
+      el.scratchpadContainer.style.display = 'none';
     }
   }
-
-  function toggleScratchpad() {
-    playClick();
-    state.scratchpadMode = (state.scratchpadMode === 'show') ? 'hide' : 'show';
-    updateScratchpadVisibility();
-  }
-
-  function closeScratchpad() {
-    playClick();
-    state.scratchpadMode = 'hide';
-    updateScratchpadVisibility();
-  }
-
-  window.toggleScratchpad = toggleScratchpad;
-  window.closeScratchpad = closeScratchpad;
 
   /* ==========================================================================
      Scratchpad Manager (Drawing Canvas for iPad/Smartboard/Mouse)
@@ -611,23 +582,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
     clear() {
       if (!this.canvas || !this.ctx) return;
-      this.ctx.save();
-      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-      this.ctx.restore();
+      const dpr = window.devicePixelRatio || 1;
+      this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
       this.strokes = [];
       this.currentStroke = null;
       this.strokeTrackingValid = true;
-      this._clearExprInput();
-    },
-
-    _clearExprInput() {
-      const exprInput = document.getElementById('scratchpad-expr-input');
-      if (!exprInput) return;
-      exprInput.blur();
-      exprInput.value = '';
-      exprInput.setAttribute('value', '');
-      exprInput.dispatchEvent(new Event('input', { bubbles: true }));
     },
 
     bindEvents() {
@@ -1251,11 +1210,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
         const rows = new Int32Array(cl.h);
         const cols = new Int32Array(cl.w);
+        let inkCount = 0;
         for (let y = 0; y < cl.h; y++) {
           for (let x = 0; x < cl.w; x++) {
             if (data[(y * cl.w + x) * 4 + 3] > 20) {
               rows[y]++;
               cols[x]++;
+              inkCount++;
             }
           }
         }
@@ -1264,7 +1225,61 @@ document.addEventListener('DOMContentLoaded', () => {
         for (let x = 1; x < cols.length; x++) if (cols[x] > cols[colIndex]) colIndex = x;
         const centralRow = rowIndex / cl.h > 0.18 && rowIndex / cl.h < 0.82;
         const centralCol = colIndex / cl.w > 0.18 && colIndex / cl.w < 0.82;
-        return centralRow && centralCol && rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
+        const axisRadius = Math.max(1, Math.round(Math.min(cl.w, cl.h) * 0.07));
+        let upperLeftOffAxisInk = 0;
+        for (let y = 0; y < rowIndex - axisRadius; y++) {
+          for (let x = 0; x < colIndex - axisRadius; x++) {
+            if (data[(y * cl.w + x) * 4 + 3] > 20) upperLeftOffAxisInk++;
+          }
+        }
+        // A handwritten 4 can have the same dominant row and column as '+',
+        // but its long diagonal leaves substantial ink above-left of both axes.
+        const hasFourLikeDiagonalArm = inkCount > 0 && upperLeftOffAxisInk / inkCount > 0.16;
+        return centralRow && centralCol && !hasFourLikeDiagonalArm &&
+          rows[rowIndex] / cl.w > 0.62 && cols[colIndex] / cl.h > 0.62;
+      } catch(e) {
+        return false;
+      }
+    },
+
+    hasFourLikeUpperArms(cl) {
+      if (!cl || !this.ctx || cl.w < 4 || cl.h < 8) return false;
+      try {
+        const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+        const rows = new Int32Array(cl.h);
+        for (let y = 0; y < cl.h; y++) {
+          for (let x = 0; x < cl.w; x++) {
+            if (data[(y * cl.w + x) * 4 + 3] > 20) rows[y]++;
+          }
+        }
+        let rowIndex = 0;
+        for (let y = 1; y < rows.length; y++) if (rows[y] > rows[rowIndex]) rowIndex = y;
+        const denseCutoff = cl.w * 0.62;
+        let bandStart = rowIndex;
+        while (bandStart > 0 && rows[bandStart - 1] > denseCutoff) bandStart--;
+
+        const dpr = window.devicePixelRatio || 1;
+        const minRunWidth = Math.max(1, Math.round(1.5 * dpr));
+        const minGap = Math.max(2, Math.round(2 * dpr));
+        let upperInkRows = 0, splitUpperRows = 0;
+        for (let y = 0; y < bandStart; y++) {
+          const runs = [];
+          let x = 0;
+          while (x < cl.w) {
+            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] <= 20) x++;
+            const start = x;
+            while (x < cl.w && data[(y * cl.w + x) * 4 + 3] > 20) x++;
+            if (x - start >= minRunWidth) runs.push({ start, end: x - 1 });
+          }
+          if (runs.length === 0) continue;
+          upperInkRows++;
+          if (runs.some((run, index) =>
+            index > 0 && run.start - runs[index - 1].end - 1 >= minGap
+          )) splitUpperRows++;
+        }
+        return upperInkRows >= Math.max(6, Math.round(6 * dpr)) &&
+          splitUpperRows >= Math.max(4, Math.round(4 * dpr)) &&
+          splitUpperRows / upperInkRows >= 0.35;
       } catch(e) {
         return false;
       }
@@ -1547,13 +1562,14 @@ document.addEventListener('DOMContentLoaded', () => {
       const cleanTokens = (tokens || []).map(token => String(token || '').trim()).filter(Boolean);
       let expression = '';
       let previous = '';
-      for (let i = 0; i < cleanTokens.length; i++) {
-        let token = cleanTokens[i];
-        // ONLY convert a trailing '+' to '4' if it is at the very end of expression with no following token and preceded by a digit (e.g. "6 +")
-        if (token === '+' && /^\d+$/.test(previous) && i === cleanTokens.length - 1) {
-          token = '4';
-        }
-        const joinsPreviousNumber = /^\d+$/.test(previous) && /^\d+$/.test(token);
+      for (const token of cleanTokens) {
+        const previousIsDigits = /^\d+$/.test(previous);
+        const tokenIsDigits = /^\d+$/.test(token);
+        const previousIsNumericFragment = /^(?:\d+(?:\.\d*)?|\.\d+|\.)$/.test(previous);
+        const tokenStartsDecimal = /^\.\d+$/.test(token);
+        const joinsPreviousNumber =
+          (previousIsNumericFragment && tokenIsDigits) ||
+          (previousIsDigits && (token === '.' || tokenStartsDecimal));
         expression += expression && !joinsPreviousNumber ? ` ${token}` : token;
         previous = token;
       }
@@ -1663,7 +1679,7 @@ document.addEventListener('DOMContentLoaded', () => {
         bottomVal = `i=${numsOnly}`;
       }
 
-      let rightVal = rightChars.map(c => c.text).join('').replace(/[^0-9+\-*×÷^!√()i]/g, '') || 'i';
+      let rightVal = rightChars.map(c => c.text).join('').replace(/[^0-9.+\-*×÷^!√()i]/g, '') || 'i';
 
       return `Σ_{${bottomVal}}^{${topVal}} ${rightVal}`;
     },
@@ -1682,149 +1698,217 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/I|l|\|/g, '1')
         .replace(/Z/g, '2');
 
-      text = text.replace(/[^0-9+\-*×÷=^!√()iΣ_{}]/g, '');
+      text = text.replace(/[^0-9.+\-*×÷=^!√()iΣ_{}]/g, '');
       return text;
     },
 
-    // Detect open/close parenthesis by raster ink distribution.
-    // A '(' has most ink on its LEFT side; a ')' has most ink on its RIGHT side.
-    // Both are taller than wide and have no enclosed holes.
-    classifyParenthesis(cl, shape) {
-      if (!cl || !this.ctx) return '';
-      // Must be taller than wide (aspect < 0.7) and no enclosed loops
-      const aspect = cl.w / Math.max(1, cl.h);
-      if (aspect > 0.72 || shape.holes.length > 0) return '';
-      // Must be tall enough to be a real bracket (not a comma or dot)
-      if (cl.h < 15) return '';
-
+    getClusterInkMetrics(cl) {
+      if (!cl) {
+        return { x0: 0, y0: 0, x1: 0, y1: 0, w: 0, h: 0, cx: 0, cy: 0, area: 0, fillRatio: 0 };
+      }
+      const empty = {
+        x0: cl.x0, y0: cl.y0, x1: cl.x1, y1: cl.y1,
+        w: cl.w, h: cl.h, cx: (cl.x0 + cl.x1) / 2,
+        cy: (cl.y0 + cl.y1) / 2, area: 0, fillRatio: 0
+      };
+      if (!this.ctx || cl.w < 1 || cl.h < 1) return empty;
       try {
-        const data = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
-        const midX = cl.w / 2;
-        let leftInk = 0, rightInk = 0, totalInk = 0;
+        const pixels = this.ctx.getImageData(cl.x0, cl.y0, cl.w, cl.h).data;
+        let x0 = cl.w, y0 = cl.h, x1 = -1, y1 = -1, area = 0;
         for (let y = 0; y < cl.h; y++) {
           for (let x = 0; x < cl.w; x++) {
-            const alpha = data[(y * cl.w + x) * 4 + 3];
-            if (alpha > 20) {
-              totalInk++;
-              if (x < midX) leftInk++;
-              else rightInk++;
-            }
+            if (pixels[(y * cl.w + x) * 4 + 3] <= 20) continue;
+            area++;
+            x0 = Math.min(x0, x); x1 = Math.max(x1, x);
+            y0 = Math.min(y0, y); y1 = Math.max(y1, y);
           }
         }
-        if (totalInk < 10) return '';
-
-        const leftRatio = leftInk / totalInk;
-        const rightRatio = rightInk / totalInk;
-
-        // ( has ink on the LEFT and the RIGHT extremes, but dips inward in the middle.
-        // Measure: top-row ink center, middle-row ink center, bottom-row ink center.
-        // For '(': top and bottom ink are on the right side (curved ends point right),
-        //           middle row ink is on the left side (the arc apex).
-        // For ')': top and bottom ink are on the left side,
-        //           middle row ink is on the right side.
-        const thirdH = Math.floor(cl.h / 3);
-        let topInkX = 0, topCount = 0;
-        let midInkX = 0, midCount = 0;
-        let botInkX = 0, botCount = 0;
-        for (let y = 0; y < cl.h; y++) {
-          for (let x = 0; x < cl.w; x++) {
-            const alpha = data[(y * cl.w + x) * 4 + 3];
-            if (alpha > 20) {
-              if (y < thirdH)               { topInkX += x; topCount++; }
-              else if (y < thirdH * 2)      { midInkX += x; midCount++; }
-              else                           { botInkX += x; botCount++; }
-            }
-          }
-        }
-        if (topCount === 0 || midCount === 0 || botCount === 0) return '';
-
-        const topCx  = topInkX / topCount / cl.w;   // 0=left, 1=right
-        const midCx  = midInkX / midCount / cl.w;
-        const botCx  = botInkX / botCount / cl.w;
-
-        // '(' : top and bottom arc toward right side, middle bows left
-        if (topCx > 0.42 && botCx > 0.42 && midCx < topCx - 0.08 && midCx < botCx - 0.08) return '(';
-        // ')' : top and bottom arc toward left side, middle bows right
-        if (topCx < 0.58 && botCx < 0.58 && midCx > topCx + 0.08 && midCx > botCx + 0.08) return ')';
-      } catch(e) {}
-      return '';
+        if (area === 0) return empty;
+        const w = x1 - x0 + 1;
+        const h = y1 - y0 + 1;
+        const globalX0 = cl.x0 + x0;
+        const globalY0 = cl.y0 + y0;
+        const globalX1 = cl.x0 + x1;
+        const globalY1 = cl.y0 + y1;
+        return {
+          x0: globalX0, y0: globalY0, x1: globalX1, y1: globalY1,
+          w, h, cx: (globalX0 + globalX1) / 2, cy: (globalY0 + globalY1) / 2,
+          area, fillRatio: area / Math.max(1, w * h)
+        };
+      } catch(e) {
+        return empty;
+      }
     },
 
-    async recognizeClusters(clusters) {
-      const recognizedParts = [];
-      for (const cl of clusters) {
+    analyzeRecognitionLayout(clusters) {
+      const metrics = (clusters || []).map(cluster => this.getClusterInkMetrics(cluster));
+      const compactDotIndexes = new Set();
+      if (metrics.length < 3) return { metrics, compactDotIndexes, glyphHeight: 0, baselineY: 0 };
+
+      const dpr = window.devicePixelRatio || 1;
+      const usable = metrics.filter(metric =>
+        metric.area > 0 && metric.h >= Math.max(5, 6 * dpr)
+      );
+      if (usable.length < 2) return { metrics, compactDotIndexes, glyphHeight: 0, baselineY: 0 };
+
+      const maxHeight = Math.max(...usable.map(metric => metric.h));
+      const primary = usable.filter(metric => metric.h >= maxHeight * 0.55);
+      const heights = primary.map(metric => metric.h).sort((a, b) => a - b);
+      const glyphHeight = heights[Math.floor(heights.length / 2)] || maxHeight;
+      const baselineGlyphs = usable.filter(metric => metric.h >= glyphHeight * 0.65);
+      const bottoms = baselineGlyphs.map(metric => metric.y1).sort((a, b) => a - b);
+      const baselineY = bottoms[Math.floor(bottoms.length / 2)] || 0;
+      const areas = baselineGlyphs.map(metric => metric.area).sort((a, b) => a - b);
+      const medianArea = areas[Math.floor(areas.length / 2)] || glyphHeight * glyphHeight;
+      const maximumDotSize = Math.max(12 * dpr, glyphHeight * 0.30);
+      const minimumDotSize = Math.max(2 * dpr, glyphHeight * 0.06);
+      const maximumDotArea = Math.max(medianArea * 0.18, glyphHeight * glyphHeight * 0.045);
+
+      metrics.forEach((metric, index) => {
+        const aspect = metric.w / Math.max(1, metric.h);
+        if (metric.area > 0 &&
+            metric.w >= minimumDotSize && metric.h >= minimumDotSize &&
+            metric.w <= maximumDotSize && metric.h <= maximumDotSize &&
+            metric.area <= maximumDotArea && metric.fillRatio >= 0.12 &&
+            aspect >= 0.40 && aspect <= 2.40) {
+          compactDotIndexes.add(index);
+        }
+      });
+      return { metrics, compactDotIndexes, glyphHeight, baselineY };
+    },
+
+    async recognizeClusters(clusters, preparedLayout = null) {
+      const recognizedParts = new Array(clusters.length).fill('');
+      const layout = preparedLayout || this.analyzeRecognitionLayout(clusters);
+      for (let index = 0; index < clusters.length; index++) {
+        const cl = clusters[index];
+        if (layout.compactDotIndexes.has(index)) {
+          // Preserve a positively identified composite stroke such as i, ! or
+          // ÷ before applying contextual decimal-point geometry.
+          recognizedParts[index] = this.classifyStrokeSymbol(cl);
+          continue;
+        }
         const rasterEquals = this.isEqualsSignCluster(cl, this.ctx);
         const strokeSymbol = this.classifyStrokeSymbol(cl);
         // A multi-stroke 2 can contain two nearly horizontal pen strokes. Do
         // not let that loose stroke heuristic bypass the digit model: '=' must
         // also have two visibly disconnected raster bands.
-        if (strokeSymbol && (strokeSymbol !== '=' || rasterEquals)) {
-          recognizedParts.push(strokeSymbol);
+        if (strokeSymbol && strokeSymbol !== '+' &&
+            (strokeSymbol !== '=' || rasterEquals)) {
+          recognizedParts[index] = strokeSymbol;
           continue;
         }
         if (rasterEquals) {
-          recognizedParts.push('=');
+          recognizedParts[index] = '=';
           continue;
         }
 
         const shape = this.analyzeClusterShape(cl);
-
-        // --- Parenthesis detector ---
-        // A '(' or ')' is a tall narrow arc with NO enclosed hole and
-        // ink concentrated on one horizontal side.
-        const paren = this.classifyParenthesis(cl, shape);
-        if (paren) {
-          recognizedParts.push(paren);
-          continue;
-        }
-
         const digitPrediction = this.predictDigit(cl);
         const predictedDigit = this.resolveDigitFromShape(digitPrediction, shape);
-        // A plus sign must have a square aspect ratio (0.75 - 1.35) and not be predicted as digit 4
-        const aspect = cl.w / Math.max(1, cl.h);
-        const isSquareCross = aspect >= 0.75 && aspect <= 1.35;
-        const rasterCross = shape.holes.length === 0 && isSquareCross && predictedDigit !== '4' && this.isRasterCrossCluster(cl);
+        // Looped digits can have dense central rows and columns, but a plus or
+        // multiplication cross cannot enclose a hole.
+        const rasterCross = shape.holes.length === 0 && this.isRasterCrossCluster(cl);
         const topologyCorrected = digitPrediction && predictedDigit !== digitPrediction.digit;
+        // A handwritten 4 may look like a cross both in its raster and in the
+        // original stroke list.  Strong digit evidence plus two separated
+        // upper arms is specific to 4, while real plus signs have one upper arm.
+        const strongFourEvidence = digitPrediction && predictedDigit === '4' &&
+          digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12 &&
+          this.hasFourLikeUpperArms(cl);
 
-        if (rasterCross) {
-          recognizedParts.push('+');
+        if ((strokeSymbol === '+' || rasterCross) && !strongFourEvidence) {
+          recognizedParts[index] = '+';
           continue;
         }
         if (cl.w / Math.max(1, cl.h) > 2.2) {
-          recognizedParts.push('-');
+          recognizedParts[index] = '-';
           continue;
         }
         if (digitPrediction &&
             (topologyCorrected || (digitPrediction.confidence >= 0.64 && digitPrediction.margin >= 0.12))) {
-          recognizedParts.push(predictedDigit);
+          recognizedParts[index] = predictedDigit;
           continue;
         }
         if (!window.Tesseract) {
-          recognizedParts.push(predictedDigit || '?');
+          recognizedParts[index] = predictedDigit || '?';
           continue;
         }
 
         const croppedCanvas = this.cropClusterToCanvas(cl);
         const isTwoDimensional = cl.h > this.canvas.height * 0.28;
         const res = await window.Tesseract.recognize(croppedCanvas, 'eng', {
-          tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+          tessedit_char_whitelist: '0123456789.+-*xX/÷=()!^vVΣEWMlimi_{}',
           tessedit_pageseg_mode: isTwoDimensional ? '6' : '10',
           preserve_interword_spaces: '1'
         });
         const spatialResult = this.parse2DSpatialOCR(res);
         if (spatialResult) {
-          recognizedParts.push(spatialResult);
+          recognizedParts[index] = spatialResult;
           continue;
         }
         const cleaned = this.cleanOCRText(res.data.text || '');
-        const recognizedOperator = cleaned.replace(/[0-9]/g, '');
+        const recognizedDecimal = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(cleaned);
+        const recognizedOperator = cleaned.replace(/[0-9.]/g, '');
         const onlyParentheses = /^[()]+$/.test(recognizedOperator);
         const broadOrLoopedDigit = cl.w / Math.max(1, cl.h) >= 0.55 || shape.holes.length > 0;
-        if (recognizedOperator && !(onlyParentheses && predictedDigit && broadOrLoopedDigit)) {
-          recognizedParts.push(recognizedOperator);
+        if (recognizedDecimal) {
+          recognizedParts[index] = cleaned;
         }
-        else if (predictedDigit) recognizedParts.push(predictedDigit);
-        else recognizedParts.push('?');
+        else if (recognizedOperator && !(onlyParentheses && predictedDigit && broadOrLoopedDigit)) {
+          recognizedParts[index] = recognizedOperator;
+        }
+        else if (predictedDigit) recognizedParts[index] = predictedDigit;
+        else recognizedParts[index] = '?';
+      }
+
+      const numericToken = /^(?:\d+(?:\.\d*)?|\.\d+)$/;
+      for (const index of layout.compactDotIndexes) {
+        if (recognizedParts[index]) continue;
+        const metric = layout.metrics[index];
+        const left = layout.metrics
+          .map((item, itemIndex) => ({ item, itemIndex }))
+          .filter(entry => entry.itemIndex !== index && entry.item.x1 < metric.x0)
+          .sort((a, b) => b.item.x1 - a.item.x1)[0];
+        const right = layout.metrics
+          .map((item, itemIndex) => ({ item, itemIndex }))
+          .filter(entry => entry.itemIndex !== index && entry.item.x0 > metric.x1)
+          .sort((a, b) => a.item.x0 - b.item.x0)[0];
+        if (!left || !right ||
+            !numericToken.test(recognizedParts[left.itemIndex]) ||
+            !numericToken.test(recognizedParts[right.itemIndex])) {
+          recognizedParts[index] = '?';
+          continue;
+        }
+
+        const localHeight = (left.item.h + right.item.h) / 2;
+        const localBaseline = (left.item.y1 + right.item.y1) / 2;
+        const leftGap = metric.x0 - left.item.x1 - 1;
+        const rightGap = right.item.x0 - metric.x1 - 1;
+        const neighboursAreFullSize =
+          left.item.h >= layout.glyphHeight * 0.65 &&
+          right.item.h >= layout.glyphHeight * 0.65;
+        const neighboursShareBaseline = Math.abs(left.item.y1 - right.item.y1) <= localHeight * 0.35;
+        const closeToNeighbours =
+          leftGap >= 0 && rightGap >= 0 &&
+          leftGap <= localHeight * 0.75 && rightGap <= localHeight * 0.75;
+        const decimalPosition =
+          metric.cy >= localBaseline - localHeight * 0.30 &&
+          metric.cy <= localBaseline + localHeight * 0.18 &&
+          metric.y1 >= localBaseline - localHeight * 0.20;
+        const multiplicationPosition =
+          metric.cy >= localBaseline - localHeight * 0.68 &&
+          metric.cy <= localBaseline - localHeight * 0.38;
+
+        if (neighboursAreFullSize && neighboursShareBaseline && closeToNeighbours && decimalPosition) {
+          recognizedParts[index] = '.';
+        } else if (neighboursAreFullSize && neighboursShareBaseline && closeToNeighbours && multiplicationPosition) {
+          recognizedParts[index] = '×';
+        } else {
+          // Never let an ambiguous compact mark fall through to the digit
+          // model, where a dot is easily normalized into an 8 and then a 2.
+          recognizedParts[index] = '?';
+        }
       }
       return recognizedParts;
     },
@@ -1870,7 +1954,11 @@ document.addEventListener('DOMContentLoaded', () => {
             exponent.cx > base.cx &&
             exponent.x0 <= base.x1 + glyphHeight * 0.65 &&
             exponent.x1 >= base.cx &&
-            exponent.y1 <= base.y0 + glyphHeight * 0.08
+            // Superscripts often overlap the upper quarter of a rounded base
+            // such as 8, but must still start above the base and finish close
+            // to its top edge. Ordinary adjacent digits fail both constraints.
+            exponent.y0 < base.y0 &&
+            exponent.y1 <= base.y0 + glyphHeight * 0.18
           ).sort((a, b) => Math.abs(exponent.x0 - a.x1) - Math.abs(exponent.x0 - b.x1));
           if (bases.length === 0) continue;
           exponentIds.add(exponent.id);
@@ -1878,7 +1966,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
       }
 
-      if (fractions.length === 0 && exponentAttachments.length === 0) return '';
+      const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
+      const mainClusters = this.componentsToClusters(mainComponents, w, h);
+      const mainLayout = this.analyzeRecognitionLayout(mainClusters);
+      if (fractions.length === 0 && exponentAttachments.length === 0 &&
+          mainLayout.compactDotIndexes.size === 0) return '';
 
       const nodes = [];
       for (const fraction of fractions) {
@@ -1887,17 +1979,16 @@ document.addEventListener('DOMContentLoaded', () => {
         const numerator = numeratorTokens.join('').replace(/\?/g, '');
         const denominator = denominatorTokens.join('').replace(/\?/g, '');
         if (!numerator || !denominator) continue;
-        const simpleNumerator = /^[0-9i]+$/.test(numerator);
-        const simpleDenominator = /^[0-9i]+$/.test(denominator);
+        const simpleNumerator = /^[0-9i.]+$/.test(numerator);
+        const simpleDenominator = /^[0-9i.]+$/.test(denominator);
         const text = `${simpleNumerator ? numerator : `(${numerator})`}/${simpleDenominator ? denominator : `(${denominator})`}`;
         nodes.push({ x0: fraction.x0, x1: fraction.x1, text });
       }
 
-      const mainComponents = remaining.filter(component => !exponentIds.has(component.id));
-      const mainClusters = this.componentsToClusters(mainComponents, w, h);
-      for (const cluster of mainClusters) {
-        const baseTokens = await this.recognizeClusters([cluster]);
-        let text = baseTokens.join('');
+      const mainTokens = await this.recognizeClusters(mainClusters, mainLayout);
+      for (let clusterIndex = 0; clusterIndex < mainClusters.length; clusterIndex++) {
+        const cluster = mainClusters[clusterIndex];
+        let text = mainTokens[clusterIndex] || '';
         const attached = exponentAttachments
           .filter(item => item.base.cx >= cluster.x0 && item.base.cx <= cluster.x1)
           .map(item => item.exponent)
@@ -1925,73 +2016,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       return this.formatRecognizedTokens(nodes.sort((a, b) => a.x0 - b.x0).map(node => node.text));
-    },
-
-    // Detect square root: finds vinculum (overline) at the top of ink area,
-    // then recognizes content strictly BELOW the vinculum as the radicand.
-    async tryRecognizeSquareRoot(w, h) {
-      try {
-        const components = this.getInkComponents(w, h);
-        if (components.length < 2) return '';
-        const bands = this.findHorizontalInkBands(w, h);
-        if (bands.length === 0) return '';
-
-        const dpr = window.devicePixelRatio || 1;
-        const glyphHeight = this.estimateInkGlyphHeight(components);
-
-        const inkTop = Math.min(...components.map(c => c.y0));
-        const inkBottom = Math.max(...components.map(c => c.y1));
-        const inkHeight = inkBottom - inkTop;
-
-        // Vinculum must be in top 45% of the ink area and at least 15px wide
-        const vinculumCandidates = bands.filter(band => {
-          const relativeY = (band.cy - inkTop) / Math.max(1, inkHeight);
-          return relativeY < 0.45 && band.peakWidth >= 15 * dpr;
-        });
-        if (vinculumCandidates.length === 0) return '';
-
-        // Pick the widest top band as vinculum
-        const vinculum = vinculumCandidates.sort((a, b) => b.peakWidth - a.peakWidth)[0];
-
-        // For √ there must be NO ink components whose CENTER is clearly above vinculum
-        // (which would indicate a fraction numerator)
-        const inkAbove = components.filter(c =>
-          c.cy < vinculum.y0 - glyphHeight * 0.1 &&
-          c.x1 >= vinculum.x0 - 5 && c.x0 <= vinculum.x1 + 5
-        );
-        if (inkAbove.length > 0) return '';
-
-        // Radicand = components that START clearly BELOW vinculum bottom
-        // (strict: must have y0 >= vinculum.y1 to exclude the vinculum/checkmark itself)
-        const radicandComponents = components.filter(c =>
-          c.y0 >= vinculum.y1 &&
-          c.cx >= vinculum.x0 - glyphHeight * 0.6 &&
-          c.cx <= vinculum.x1 + glyphHeight * 0.2
-        );
-        if (radicandComponents.length === 0) return '';
-
-        // Outside = components to the RIGHT of vinculum end (not under it)
-        const outsideRight = components.filter(c =>
-          c.x0 > vinculum.x1 + glyphHeight * 0.1 &&
-          !radicandComponents.includes(c)
-        );
-
-        // Recognize radicand
-        const radicandClusters = this.componentsToClusters(radicandComponents, w, h);
-        const radicandTokens = await this.recognizeClusters(radicandClusters);
-        const radicand = this.formatRecognizedTokens(radicandTokens).replace(/\s+/g, '');
-        if (!radicand || radicand === '?') return '';
-
-        // Recognize suffix (outside right of vinculum)
-        let suffix = '';
-        if (outsideRight.length > 0) {
-          const outsideClusters = this.componentsToClusters(outsideRight, w, h);
-          const outsideTokens = await this.recognizeClusters(outsideClusters);
-          suffix = ' ' + this.formatRecognizedTokens(outsideTokens);
-        }
-
-        return `√${radicand}${suffix}`.trim();
-      } catch(e) { return ''; }
     },
 
     async tryRecognizeRasterSigma(w, h) {
@@ -2079,7 +2103,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const upper = topTokens.join('').replace(/[^0-9]/g, '');
         const bottomText = bottomTokens.join('');
         const lowerMatch = bottomText.match(/(?:i|1)?=?([0-9]+)/);
-        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
+        let rightText = rightTokens.join('').replace(/[^0-9.+\-×÷=^!√()i]/g, '');
         if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
         return `Σ_{i=${lowerMatch ? lowerMatch[1] : '?'}}^{${upper || '?'}} ${rightText || '?'}`;
       }
@@ -2176,7 +2200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const upper = topTokens.join('').replace(/[^0-9]/g, '');
         const bottomText = bottomTokens.join('');
         const lowerMatch = bottomText.match(/(?:i)?=?([0-9]+)/);
-        let rightText = rightTokens.join('').replace(/[^0-9+\-×÷=^!√()i]/g, '');
+        let rightText = rightTokens.join('').replace(/[^0-9.+\-×÷=^!√()i]/g, '');
         if (/^1=/.test(rightText)) rightText = `i${rightText.slice(1)}`;
         // The spatial layout itself is strong evidence. Preserve every region
         // and mark an uncertain token instead of falling through to a bogus
@@ -2234,7 +2258,6 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.addEventListener('click', () => {
           playClick();
           this.clear();
-          this._clearExprInput();
         });
       }
 
@@ -2268,13 +2291,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 exprInput.value = spatialSigma;
                 return;
               }
-              // Square root √ detection must run BEFORE structuredMath since the
-              // vinculum band confuses the fraction layout finder.
-              const sqrtResult = await this.tryRecognizeSquareRoot(w, h);
-              if (sqrtResult) {
-                exprInput.value = sqrtResult;
-                return;
-              }
               const structuredMath = await this.tryRecognizeStructuredMath(w, h);
               if (structuredMath) {
                 exprInput.value = structuredMath;
@@ -2297,7 +2313,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Fallback to full canvas
                 const preprocessed = this.getPreprocessedCanvas();
                 const res = await window.Tesseract.recognize(preprocessed, 'eng', {
-                  tessedit_char_whitelist: '0123456789+-*xX/÷=()!^vVΣEWMlimi_{}',
+                  tessedit_char_whitelist: '0123456789.+-*xX/÷=()!^vVΣEWMlimi_{}',
                   tessedit_pageseg_mode: '11'
                 });
                 const spatialResult = this.parse2DSpatialOCR(res);
@@ -2383,11 +2399,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // 2. Evaluate Expression
     const evalResult = MathEngine.evaluate(equation.left);
     const assertedResult = equation.right ? MathEngine.evaluate(equation.right) : null;
+    const numbersMatch = (a, b) =>
+      Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
     const equationMatches = !assertedResult ||
-      (evalResult.success && assertedResult.success && evalResult.result === assertedResult.result);
+      (evalResult.success && assertedResult.success && numbersMatch(evalResult.result, assertedResult.result));
 
     // 3. Match with Target Value
-    const isTargetMatched = evalResult.success && equationMatches && evalResult.result === state.targetValue;
+    const isTargetMatched = evalResult.success && equationMatches && numbersMatch(evalResult.result, state.targetValue);
     const isFullyCorrect = digitCheck.isValid && isTargetMatched;
 
     const titleEl = document.getElementById('check-result-title');
@@ -2482,7 +2500,7 @@ document.addEventListener('DOMContentLoaded', () => {
     playClick();
     if (el.selectGameMode)       el.selectGameMode.value       = state.gameMode;
     if (el.inputCompItems)       el.inputCompItems.value       = state.compTotalItems;
-
+    if (el.selectScratchpadMode) el.selectScratchpadMode.value  = state.scratchpadMode;
     if (el.selectDigitMode)      el.selectDigitMode.value      = state.digitCount;
     if (el.selectTargetMode)     el.selectTargetMode.value     = state.targetMode;
     if (el.selectTimerMode)      el.selectTimerMode.value      = state.timerMode;
@@ -2506,7 +2524,7 @@ document.addEventListener('DOMContentLoaded', () => {
     playClick();
     if (el.selectGameMode)       state.gameMode       = el.selectGameMode.value;
     if (el.inputCompItems)       state.compTotalItems = Math.max(1, parseInt(el.inputCompItems.value, 10) || 30);
-
+    if (el.selectScratchpadMode) state.scratchpadMode = el.selectScratchpadMode.value;
     if (el.selectDigitMode)      state.digitCount     = parseInt(el.selectDigitMode.value, 10) || 4;
     if (el.selectTargetMode)     state.targetMode     = el.selectTargetMode.value;
     if (el.selectTimerMode)      state.timerMode      = el.selectTimerMode.value;
