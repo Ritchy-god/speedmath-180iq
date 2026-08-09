@@ -1891,7 +1891,11 @@ document.addEventListener('DOMContentLoaded', () => {
             exponent.cx > base.cx &&
             exponent.x0 <= base.x1 + glyphHeight * 0.65 &&
             exponent.x1 >= base.cx &&
-            exponent.y1 <= base.y0 + glyphHeight * 0.08
+            // Superscripts often overlap the upper quarter of a rounded base
+            // such as 8, but must still start above the base and finish close
+            // to its top edge. Ordinary adjacent digits fail both constraints.
+            exponent.y0 < base.y0 &&
+            exponent.y1 <= base.y0 + glyphHeight * 0.18
           ).sort((a, b) => Math.abs(exponent.x0 - a.x1) - Math.abs(exponent.x0 - b.x1));
           if (bases.length === 0) continue;
           exponentIds.add(exponent.id);
