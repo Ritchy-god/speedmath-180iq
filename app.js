@@ -530,6 +530,17 @@ document.addEventListener('DOMContentLoaded', () => {
       let text = String(latex || '').trim();
       if (!text) return '';
       text = text.replace(/\\left|\\right/g, '').replace(/\\(?:,|;|!|quad|qquad)/g, ' ');
+      const summations = [];
+      text = text.replace(
+        /\\sum\s*_\s*\{\s*i\s*=\s*([^{}]+?)\s*\}\s*\^\s*\{\s*([^{}]+?)\s*\}/g,
+        (_, lower, upper) => {
+          const index = summations.push({
+            lower: lower.replace(/\s+/g, ''),
+            upper: upper.replace(/\s+/g, '')
+          }) - 1;
+          return ` SPEEDMATHSIGMA${index} `;
+        }
+      );
       const replaceGroups = (pattern, replacer) => {
         let previous;
         do {
@@ -546,8 +557,13 @@ document.addEventListener('DOMContentLoaded', () => {
         .replace(/\^\s*\{([^{}]+)\}/g, '^($1)')
         .replace(/[{}]/g, '')
         .replace(/\\[a-zA-Z]+/g, '')
+        .replace(/(\d)\s+(?=\d)/g, '$1')
         .replace(/\s+/g, ' ')
         .trim();
+      text = text.replace(/SPEEDMATHSIGMA(\d+)/g, (_, index) => {
+        const sigma = summations[Number(index)];
+        return sigma ? `Σ_{i=${sigma.lower}}^{${sigma.upper}}` : '';
+      });
       return text;
     },
 

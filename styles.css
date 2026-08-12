@@ -794,13 +794,17 @@ body {
 }
 
 .input-with-tools {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.4rem;
   align-items: center;
 }
 
 .scratchpad-input {
-  flex: 1;
+  grid-column: 1 / -1;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.2);
   border-radius: var(--radius-sm);
@@ -822,6 +826,9 @@ body {
   font-weight: 700;
   border: none;
   white-space: nowrap;
+  width: 100%;
+  min-width: 0;
+  justify-content: center;
 }
 
 .tool-btn.highlight:hover {
