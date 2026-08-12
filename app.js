@@ -620,10 +620,85 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async useRecognizedExpression(expression, exprInput, button) {
       const text = String(expression || '').trim();
-      if (text) exprInput.value = text;
+      if (text) {
+        exprInput.value = text;
+        exprInput.dispatchEvent(new Event('input', { bubbles: true }));
+      }
       if (this.getMyScriptProxyUrl() && this.strokeTrackingValid && this.isRecognitionUncertain(text)) {
         await this.recognizeWithMyScript(exprInput, button);
       }
+    },
+
+    toDisplayLatex(expression) {
+      let latex = String(expression || '').trim();
+      if (!latex) return '';
+
+      latex = latex.replace(/Σ_\{([^{}]+)\}\^\{([^{}]+)\}/g, '\\sum_{$1}^{$2}');
+
+      let previous;
+      do {
+        previous = latex;
+        latex = latex
+          .replace(/√\(([^()]*)\)/g, '\\sqrt{$1}')
+          .replace(/\(([^()]*)\)\s*\/\s*\(([^()]*)\)/g, '\\frac{$1}{$2}')
+          .replace(/\^\(([^()]*)\)/g, '^{$1}');
+      } while (latex !== previous);
+
+      latex = latex
+        .replace(/\b(\d+)\s*\/\s*(\d+)\b/g, '\\frac{$1}{$2}')
+        .replace(/[×*]/g, '\\times ')
+        .replace(/÷/g, '\\div ')
+        .replace(/√\s*([\dA-Za-z]+)/g, '\\sqrt{$1}');
+
+      return latex;
+    },
+
+    bindExpressionPreview(exprInput) {
+      const field = document.getElementById('scratchpad-math-field');
+      const preview = document.getElementById('scratchpad-latex-preview');
+      if (!field || !preview || !exprInput) return;
+
+      const render = () => {
+        const expression = exprInput.value.trim();
+        preview.classList.toggle('is-empty', !expression);
+        if (!expression) {
+          preview.textContent = exprInput.placeholder;
+          return;
+        }
+        if (!window.katex) {
+          preview.textContent = expression;
+          return;
+        }
+        window.katex.render(this.toDisplayLatex(expression), preview, {
+          throwOnError: false,
+          strict: false,
+          displayMode: false
+        });
+      };
+
+      const startEditing = () => {
+        field.classList.add('is-editing');
+        requestAnimationFrame(() => {
+          exprInput.focus();
+          exprInput.setSelectionRange(exprInput.value.length, exprInput.value.length);
+        });
+      };
+
+      field.classList.add('is-enhanced');
+      preview.addEventListener('click', startEditing);
+      preview.addEventListener('keydown', event => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          startEditing();
+        }
+      });
+      exprInput.addEventListener('focus', () => field.classList.add('is-editing'));
+      exprInput.addEventListener('blur', () => {
+        render();
+        field.classList.remove('is-editing');
+      });
+      exprInput.addEventListener('input', render);
+      render();
     },
 
     init() {
@@ -2521,12 +2596,19 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.addEventListener('click', () => {
           playClick();
           this.clear();
+          const input = document.getElementById('scratchpad-expr-input');
+          if (input) {
+            input.value = '';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.blur();
+          }
         });
       }
 
       // OCR Handwriting Conversion
       const ocrBtn = document.getElementById('sp-btn-ocr');
       const exprInput = document.getElementById('scratchpad-expr-input');
+      this.bindExpressionPreview(exprInput);
 
       if (ocrBtn && exprInput && !document.getElementById('sp-btn-myscript')) {
         const myScriptBtn = document.createElement('button');
@@ -2634,6 +2716,7 @@ document.addEventListener('DOMContentLoaded', () => {
           const sym = b.getAttribute('data-sym');
           if (sym) {
             exprInput.value += sym;
+            exprInput.dispatchEvent(new Event('input', { bubbles: true }));
             exprInput.focus();
           }
         });
@@ -2644,6 +2727,7 @@ document.addEventListener('DOMContentLoaded', () => {
         clearInputBtn.addEventListener('click', () => {
           playClick();
           exprInput.value = '';
+          exprInput.dispatchEvent(new Event('input', { bubbles: true }));
           exprInput.focus();
         });
       }

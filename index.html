@@ -6,7 +6,7 @@
   <title>คิดเลขเร็ว 180 IQ - Speed Math Competition</title>
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=countup-check-1">
+  <link rel="stylesheet" href="styles.css?v=latex-preview-1">
   
   <!-- KaTeX CSS for LaTeX rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -129,7 +129,7 @@
         <button id="sp-color-pink" class="color-btn" style="background:#ff0844;" title="สีชมพู"></button>
         <button id="sp-color-green" class="color-btn" style="background:#00e676;" title="สีเขียว"></button>
         <button id="sp-btn-eraser" class="tool-btn" title="ยางลบ">🧹 ยางลบ</button>
-        <button id="sp-btn-clear" class="tool-btn danger" title="ล้างกระดาษทด" onclick="var inp=document.getElementById('scratchpad-expr-input');if(inp){inp.value='';inp.blur();}">🗑️ ล้าง</button>
+        <button id="sp-btn-clear" class="tool-btn danger" title="ล้างกระดาษทด">🗑️ ล้าง</button>
         <button id="sp-btn-close" class="tool-btn sp-close-btn" title="ปิดกระดาษทด">✕</button>
       </div>
     </div>
@@ -139,7 +139,10 @@
     <!-- Scratchpad Expression & OCR Bar -->
     <div class="scratchpad-expression-bar">
       <div class="input-with-tools">
-        <input type="text" id="scratchpad-expr-input" class="scratchpad-input" placeholder="พิมพ์หรือกดแปลงลายมือสมการ..." autocomplete="off" />
+        <div id="scratchpad-math-field" class="scratchpad-math-field">
+          <div id="scratchpad-latex-preview" class="scratchpad-latex-preview" role="button" tabindex="0" aria-label="สมการแบบ LaTeX คลิกเพื่อแก้ไข">พิมพ์หรือกดแปลงลายมือสมการ...</div>
+          <input type="text" id="scratchpad-expr-input" class="scratchpad-input" placeholder="พิมพ์หรือกดแปลงลายมือสมการ..." autocomplete="off" aria-label="แก้ไขสมการ" />
+        </div>
         <button id="sp-btn-ocr" class="tool-btn highlight" title="แปลงลายมือบนกระดาษเป็นตัวเลข/สมการ">
           ✨ แปลงลายมือ
         </button>
@@ -205,9 +208,6 @@
           <option value="none">ไม่จับเวลา</option>
         </select>
       </div>
-
-
-
       <div style="display: flex; gap: 0.75rem; justify-content: flex-end; margin-top: 1rem;">
         <button id="btn-save-settings" class="btn-icon btn-highlight" style="width: 100%; justify-content: center;">
           💾 บันทึกและเริ่มเกมใหม่
@@ -239,6 +239,6 @@
   <script src="solver.js" onerror="this.onerror=null;this.src='js/solver.js'"></script>
   <script src="audio.js" onerror="this.onerror=null;this.src='js/audio.js'"></script>
   <script src="models/digit-model.js"></script>
-  <script src="app.js?v=countup-check-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
+  <script src="app.js?v=latex-preview-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
 </body>
 </html>
