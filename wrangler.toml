@@ -1,0 +1,7 @@
+name = "speedmath-myscript-proxy"
+main = "worker/myscript-proxy.js"
+compatibility_date = "2026-08-11"
+
+[vars]
+ALLOWED_ORIGIN = "https://ritchy-god.github.io"
+MYSCRIPT_URL = "https://cloud.myscript.com/api/v4.0/iink/recognize/"

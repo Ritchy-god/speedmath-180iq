@@ -499,6 +499,103 @@ document.addEventListener('DOMContentLoaded', () => {
     currentStroke: null,
     strokeTrackingValid: true,
 
+    getMyScriptProxyUrl() {
+      const configured = window.SPEEDMATH_MYSCRIPT_PROXY_URL || '';
+      return String(configured).trim().replace(/\/$/, '');
+    },
+
+    buildMyScriptRequest() {
+      if (!this.strokeTrackingValid || !this.strokes.length) {
+        throw new Error('MyScript needs original pen strokes; clear the board and write again.');
+      }
+      const strokes = this.strokes
+        .filter(stroke => Array.isArray(stroke) && stroke.length >= 1)
+        .map((stroke, index) => ({
+          id: `stroke-${index + 1}`,
+          pointerType: 'PEN',
+          x: (stroke.length === 1 ? [stroke[0], stroke[0]] : stroke).map(point => Number(point.x.toFixed(2))),
+          y: (stroke.length === 1 ? [stroke[0], stroke[0]] : stroke).map(point => Number(point.y.toFixed(2)))
+        }));
+      if (!strokes.length) throw new Error('No pen strokes to recognize.');
+      const rect = this.canvas.getBoundingClientRect();
+      return {
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+        strokes
+      };
+    },
+
+    normalizeMyScriptLatex(latex) {
+      let text = String(latex || '').trim();
+      if (!text) return '';
+      text = text.replace(/\\left|\\right/g, '').replace(/\\(?:,|;|!|quad|qquad)/g, ' ');
+      const replaceGroups = (pattern, replacer) => {
+        let previous;
+        do {
+          previous = text;
+          text = text.replace(pattern, replacer);
+        } while (text !== previous);
+      };
+      replaceGroups(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, '($1)/($2)');
+      replaceGroups(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)');
+      text = text
+        .replace(/\\times|\\cdot/g, '×')
+        .replace(/\\div/g, '÷')
+        .replace(/\\pm/g, '+')
+        .replace(/\^\s*\{([^{}]+)\}/g, '^($1)')
+        .replace(/[{}]/g, '')
+        .replace(/\\[a-zA-Z]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return text;
+    },
+
+    async recognizeWithMyScript(exprInput, button) {
+      const proxyUrl = this.getMyScriptProxyUrl();
+      if (!proxyUrl) {
+        alert('ยังไม่ได้เชื่อมต่อ MyScript proxy กรุณาตั้งค่า Worker URL ก่อน');
+        return;
+      }
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = '⏳ MyScript...';
+      try {
+        const response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.buildMyScriptRequest())
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || `MyScript HTTP ${response.status}`);
+        const expression = this.normalizeMyScriptLatex(result.latex);
+        if (!expression) throw new Error('MyScript returned no equation.');
+        exprInput.value = expression;
+        exprInput.dispatchEvent(new Event('input', { bubbles: true }));
+      } catch (error) {
+        console.error('MyScript fallback error:', error);
+        alert(`MyScript อ่านไม่สำเร็จ: ${error.message}`);
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+      }
+    },
+
+    isRecognitionUncertain(expression) {
+      const text = String(expression || '').trim();
+      if (!text || text.includes('?') || !window.MathEngine) return true;
+      const equality = splitTopLevelEquality(text);
+      const sides = equality.right ? [equality.left, equality.right] : [equality.left];
+      return sides.some(side => !side || !window.MathEngine.evaluate(side).success);
+    },
+
+    async useRecognizedExpression(expression, exprInput, button) {
+      const text = String(expression || '').trim();
+      if (text) exprInput.value = text;
+      if (this.getMyScriptProxyUrl() && this.strokeTrackingValid && this.isRecognitionUncertain(text)) {
+        await this.recognizeWithMyScript(exprInput, button);
+      }
+    },
+
     init() {
       this.canvas = document.getElementById('scratchpad-canvas');
       if (!this.canvas) return;
@@ -599,6 +696,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     stopDrawing(e) {
       if (this.isDrawing) {
+        if (this.currentStroke && e && (e.clientX !== undefined || (e.changedTouches && e.changedTouches[0]))) {
+          const finalPoint = this.getPos(e.changedTouches ? e.changedTouches[0] : e);
+          const previous = this.currentStroke[this.currentStroke.length - 1];
+          if (!previous || finalPoint.x !== previous.x || finalPoint.y !== previous.y) {
+            this.currentStroke.push(finalPoint);
+          }
+        }
         this.isDrawing = false;
         this.currentStroke = null;
         this.ctx.beginPath();
@@ -2394,6 +2498,24 @@ document.addEventListener('DOMContentLoaded', () => {
       const ocrBtn = document.getElementById('sp-btn-ocr');
       const exprInput = document.getElementById('scratchpad-expr-input');
 
+      if (ocrBtn && exprInput && !document.getElementById('sp-btn-myscript')) {
+        const myScriptBtn = document.createElement('button');
+        myScriptBtn.type = 'button';
+        myScriptBtn.id = 'sp-btn-myscript';
+        myScriptBtn.className = ocrBtn.className;
+        myScriptBtn.textContent = '☁️ อ่านแบบแม่นยำ';
+        myScriptBtn.hidden = !this.getMyScriptProxyUrl();
+        myScriptBtn.addEventListener('click', () => {
+          playClick();
+          if (this.isCanvasBlank()) {
+            alert('กรุณาเขียนสมการก่อน');
+            return;
+          }
+          this.recognizeWithMyScript(exprInput, myScriptBtn);
+        });
+        ocrBtn.insertAdjacentElement('afterend', myScriptBtn);
+      }
+
       if (ocrBtn && exprInput) {
         ocrBtn.addEventListener('click', async () => {
           playClick();
@@ -2417,12 +2539,12 @@ document.addEventListener('DOMContentLoaded', () => {
               const h = this.canvas.height;
               const spatialSigma = await this.tryRecognizeRasterSigma(w, h);
               if (spatialSigma) {
-                exprInput.value = spatialSigma;
+                await this.useRecognizedExpression(spatialSigma, exprInput, ocrBtn);
                 return;
               }
               const structuredMath = await this.tryRecognizeStructuredMath(w, h);
               if (structuredMath) {
-                exprInput.value = structuredMath;
+                await this.useRecognizedExpression(structuredMath, exprInput, ocrBtn);
                 return;
               }
               const strokeClusters = this.segmentStrokeClusters(w, h);
@@ -2434,9 +2556,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 const recognizedParts = await this.recognizeClusters(clusters);
 
                 if (recognizedParts.length > 0) {
-                  exprInput.value = this.formatRecognizedTokens(recognizedParts);
+                  await this.useRecognizedExpression(this.formatRecognizedTokens(recognizedParts), exprInput, ocrBtn);
                 } else {
-                  alert('อ่านลายมือไม่ชัดเจน โปรดกดปุ่มสัญลักษณ์ด่วนด้านล่าง');
+                  if (this.getMyScriptProxyUrl() && this.strokeTrackingValid) {
+                    await this.recognizeWithMyScript(exprInput, ocrBtn);
+                  } else {
+                    alert('อ่านลายมือไม่ชัดเจน โปรดกดปุ่มสัญลักษณ์ด่วนด้านล่าง');
+                  }
                 }
               } else {
                 // Fallback to full canvas
@@ -2446,10 +2572,18 @@ document.addEventListener('DOMContentLoaded', () => {
                   tessedit_pageseg_mode: '11'
                 });
                 const spatialResult = this.parse2DSpatialOCR(res);
-                exprInput.value = spatialResult || this.cleanOCRText(res.data.text || '');
+                await this.useRecognizedExpression(
+                  spatialResult || this.cleanOCRText(res.data.text || ''),
+                  exprInput,
+                  ocrBtn
+                );
               }
             } else {
-              alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือใช้ปุ่มกดสัญลักษณ์ด่วน');
+              if (this.getMyScriptProxyUrl() && this.strokeTrackingValid) {
+                await this.recognizeWithMyScript(exprInput, ocrBtn);
+              } else {
+                alert('ระบบกำลังโหลดตัวอ่านลายมือ โปรดลองอีกครั้งในครู่เดียว หรือใช้ปุ่มกดสัญลักษณ์ด่วน');
+              }
             }
           } catch(err) {
             console.error('OCR error:', err);

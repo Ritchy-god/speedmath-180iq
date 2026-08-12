@@ -1,0 +1,9 @@
+# Local fallback copy from the old project layout.
+/js/
+
+# Public configuration is created only after the Worker has been deployed.
+/myscript-config.js
+
+# Cloudflare/Wrangler local state and secrets.
+/.wrangler/
+/.dev.vars
