@@ -387,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function resetTimerDisplay() {
     const secs = getTimerSeconds();
-    if (el.timerValue) el.timerValue.textContent = secs || '∞';
+    if (el.timerValue) el.timerValue.textContent = state.timerMode === 'none' ? '∞' : secs;
     if (el.timerProgress) {
       el.timerProgress.style.strokeDashoffset = 0;
       el.timerProgress.classList.remove('warning', 'danger');
@@ -417,6 +417,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (isCountUp) {
         state.timerSeconds++;
+        updateTimerDisplay();
       } else {
         state.timerSeconds--;
         updateTimerDisplay();
