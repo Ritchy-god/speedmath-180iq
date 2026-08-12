@@ -25,4 +25,4 @@ This Worker keeps the MyScript application and HMAC keys off the public GitHub P
 
 4. Copy the resulting `workers.dev` URL into `window.SPEEDMATH_MYSCRIPT_PROXY_URL` in `app.js`, or load a local `myscript-config.js` before `app.js`.
 
-The browser sends only pen coordinates to the Worker. The Worker signs the exact JSON body with HMAC-SHA512 and forwards it to MyScript's `/api/v4.0/iink/recognize/` endpoint.
+The browser sends only pen coordinates to the Worker. The Worker signs the exact JSON body with HMAC-SHA512 and forwards it to MyScript's `/api/v4.0/iink/recognize` endpoint.

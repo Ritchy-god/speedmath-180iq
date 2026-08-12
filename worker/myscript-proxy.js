@@ -82,7 +82,7 @@ export default {
         strokeGroups: [{ penStyle: 'color: #000000; -myscript-pen-width: 1', strokes: input.strokes }]
       });
       const signature = await hmacHex(payload, env.MYSCRIPT_APPLICATION_KEY, env.MYSCRIPT_HMAC_KEY);
-      const upstream = await fetch(env.MYSCRIPT_URL || 'https://cloud.myscript.com/api/v4.0/iink/recognize/', {
+      const upstream = await fetch(env.MYSCRIPT_URL || 'https://cloud.myscript.com/api/v4.0/iink/recognize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
