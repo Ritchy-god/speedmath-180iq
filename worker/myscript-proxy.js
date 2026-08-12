@@ -66,20 +66,17 @@ export default {
     }
     try {
       const input = validateInput(await request.json());
+      // The v4 recognizer accepts strokes directly at the top level. Coordinates
+      // come from a CSS-pixel canvas, so convert one pixel to millimetres at 96 DPI.
+      const millimetresPerPixel = 25.4 / 96;
       const payload = JSON.stringify({
-        configuration: {
-          lang: 'en_US',
-          math: {
-            mimeTypes: ['application/x-latex'],
-            solver: { enable: false }
-          }
-        },
-        xDPI: 96,
-        yDPI: 96,
+        scaleX: millimetresPerPixel,
+        scaleY: millimetresPerPixel,
         contentType: 'Math',
-        width: input.width,
-        height: input.height,
-        strokeGroups: [{ penStyle: 'color: #000000; -myscript-pen-width: 1', strokes: input.strokes }]
+        configuration: {
+          lang: 'en_US'
+        },
+        strokes: input.strokes.map(({ id, x, y }) => ({ id, x, y }))
       });
       const signature = await hmacHex(payload, env.MYSCRIPT_APPLICATION_KEY, env.MYSCRIPT_HMAC_KEY);
       const upstream = await fetch(env.MYSCRIPT_URL || 'https://cloud.myscript.com/api/v4.0/iink/recognize', {
