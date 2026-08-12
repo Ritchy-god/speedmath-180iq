@@ -44,7 +44,7 @@ export default {
   async fetch(request, env) {
     const allowedOrigin = env.ALLOWED_ORIGIN || 'https://ritchy-god.github.io';
     const origin = request.headers.get('Origin') || '';
-    if (origin && origin !== allowedOrigin) return json({ error: 'Origin not allowed' }, 403);
+    if (origin !== allowedOrigin) return json({ error: 'Origin not allowed' }, 403);
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: {
         'Access-Control-Allow-Origin': allowedOrigin,
@@ -55,6 +55,12 @@ export default {
       }});
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, allowedOrigin);
+    const contentType = request.headers.get('Content-Type') || '';
+    const contentLength = Number(request.headers.get('Content-Length') || 0);
+    if (!contentType.toLowerCase().startsWith('application/json')) {
+      return json({ error: 'Content-Type must be application/json' }, 415, allowedOrigin);
+    }
+    if (contentLength > 1024 * 1024) return json({ error: 'Request is too large' }, 413, allowedOrigin);
     if (!env.MYSCRIPT_APPLICATION_KEY || !env.MYSCRIPT_HMAC_KEY) {
       return json({ error: 'MyScript secrets are not configured' }, 503, allowedOrigin);
     }
