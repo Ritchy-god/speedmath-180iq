@@ -500,7 +500,8 @@ document.addEventListener('DOMContentLoaded', () => {
     strokeTrackingValid: true,
 
     getMyScriptProxyUrl() {
-      const configured = window.SPEEDMATH_MYSCRIPT_PROXY_URL || '';
+      const configured = window.SPEEDMATH_MYSCRIPT_PROXY_URL ||
+        'https://speedmath-myscript-proxy.sonic125ster.workers.dev';
       return String(configured).trim().replace(/\/$/, '');
     },
 
