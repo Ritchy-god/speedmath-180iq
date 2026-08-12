@@ -200,7 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
 
-    if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'none';
+    if (el.btnCheckAnswer) {
+      el.btnCheckAnswer.style.display = state.timerMode === 'countup' ? 'inline-flex' : 'none';
+    }
     playClick();
     stopTimer();
     rollNewDigits();
@@ -245,7 +247,9 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'none';
+    if (el.btnCheckAnswer) {
+      el.btnCheckAnswer.style.display = state.timerMode === 'countup' ? 'inline-flex' : 'none';
+    }
     playClick();
 
     if (isGame24()) {
@@ -388,6 +392,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function resetTimerDisplay() {
     const secs = getTimerSeconds();
     if (el.timerValue) el.timerValue.textContent = state.timerMode === 'none' ? '∞' : secs;
+    updateCheckAnswerButtonVisibility();
     if (el.timerProgress) {
       el.timerProgress.style.strokeDashoffset = 0;
       el.timerProgress.classList.remove('warning', 'danger');
@@ -396,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function startTimer() {
     stopTimer();
+    updateCheckAnswerButtonVisibility();
 
     const m = state.timerMode;
     if (m === 'none') {
@@ -426,7 +432,7 @@ document.addEventListener('DOMContentLoaded', () => {
           stopTimer();
           playAlarm();
           state.hasCompletedRound = true;
-          if (el.btnCheckAnswer) el.btnCheckAnswer.style.display = 'inline-flex';
+          updateCheckAnswerButtonVisibility();
           return;
         }
       }
@@ -469,6 +475,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el.scratchpadToggleText) {
       el.scratchpadToggleText.textContent = isVisible ? 'ซ่อนกระดาษทด' : 'แสดงกระดาษทด';
     }
+  }
+
+  function updateCheckAnswerButtonVisibility() {
+    if (!el.btnCheckAnswer) return;
+    const shouldShow = state.timerMode === 'countup' || state.hasCompletedRound;
+    el.btnCheckAnswer.style.display = shouldShow ? 'inline-flex' : 'none';
   }
 
   function doToggleScratchpad() {
@@ -2662,6 +2674,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function doCheckAnswer() {
     playClick();
+    if (state.timerMode === 'countup') stopTimer();
     const exprInput = document.getElementById('scratchpad-expr-input');
     const expr = exprInput ? exprInput.value.trim() : '';
 
