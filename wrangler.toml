@@ -5,3 +5,12 @@ compatibility_date = "2026-08-11"
 [vars]
 ALLOWED_ORIGIN = "https://ritchy-god.github.io"
 MYSCRIPT_URL = "https://cloud.myscript.com/api/v4.0/iink/recognize"
+MYSCRIPT_USAGE_OFFSET = "0"
+
+[[durable_objects.bindings]]
+name = "MYSCRIPT_USAGE"
+class_name = "MyScriptUsage"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MyScriptUsage"]

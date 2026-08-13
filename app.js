@@ -574,11 +574,53 @@ document.addEventListener('DOMContentLoaded', () => {
     strokes: [],
     currentStroke: null,
     strokeTrackingValid: true,
+    myScriptUsage: null,
 
     getMyScriptProxyUrl() {
       const configured = window.SPEEDMATH_MYSCRIPT_PROXY_URL ||
         'https://speedmath-myscript-proxy.sonic125ster.workers.dev';
       return String(configured).trim().replace(/\/$/, '');
+    },
+
+    updateMyScriptUsage(usage) {
+      if (!usage || !Number.isFinite(Number(usage.limit))) return;
+      this.myScriptUsage = {
+        used: Math.max(0, Number(usage.used) || 0),
+        limit: Math.max(1, Number(usage.limit) || 2000),
+        remaining: Math.max(0, Number(usage.remaining) || 0),
+        limitReached: Boolean(usage.limitReached)
+      };
+
+      const badge = document.getElementById('myscript-usage');
+      const button = document.getElementById('sp-btn-myscript');
+      if (badge) {
+        const { used, limit, remaining, limitReached } = this.myScriptUsage;
+        badge.textContent = limitReached
+          ? `MyScript: ครบลิมิต ${limit.toLocaleString('th-TH')} ครั้งแล้ว`
+          : `MyScript คงเหลือ ${remaining.toLocaleString('th-TH')} / ${limit.toLocaleString('th-TH')} ครั้ง · นับจากวันที่เปิดตัวนับ`;
+        badge.classList.toggle('warning', !limitReached && remaining <= Math.max(100, limit * 0.1));
+        badge.classList.toggle('exhausted', limitReached);
+      }
+      if (button) {
+        button.dataset.limitReached = String(this.myScriptUsage.limitReached);
+        button.disabled = this.myScriptUsage.limitReached;
+        if (this.myScriptUsage.limitReached) button.textContent = '⛔ ครบลิมิตแล้ว';
+      }
+    },
+
+    async loadMyScriptUsage() {
+      const proxyUrl = this.getMyScriptProxyUrl();
+      if (!proxyUrl) return;
+      const badge = document.getElementById('myscript-usage');
+      try {
+        const response = await fetch(`${proxyUrl}/usage`, { method: 'GET', cache: 'no-store' });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok || !result.usage) throw new Error(result.error || 'Usage unavailable');
+        this.updateMyScriptUsage(result.usage);
+      } catch (error) {
+        console.warn('MyScript usage unavailable:', error);
+        if (badge) badge.textContent = 'MyScript: ไม่สามารถโหลดเครดิตได้';
+      }
     },
 
     buildMyScriptRequest() {
@@ -649,6 +691,10 @@ document.addEventListener('DOMContentLoaded', () => {
         alert('ยังไม่ได้เชื่อมต่อ MyScript proxy กรุณาตั้งค่า Worker URL ก่อน');
         return;
       }
+      if (this.myScriptUsage?.limitReached) {
+        alert('MyScript ใช้ครบลิมิต 2,000 ครั้งแล้ว กรุณาใช้ปุ่มแปลงลายมือภายในเครื่อง');
+        return;
+      }
       const original = button.textContent;
       button.disabled = true;
       button.textContent = '⏳ MyScript...';
@@ -659,6 +705,7 @@ document.addEventListener('DOMContentLoaded', () => {
           body: JSON.stringify(this.buildMyScriptRequest())
         });
         const result = await response.json().catch(() => ({}));
+        if (result.usage) this.updateMyScriptUsage(result.usage);
         if (!response.ok) throw new Error(result.error || `MyScript HTTP ${response.status}`);
         const expression = this.normalizeMyScriptLatex(result.latex);
         if (!expression) throw new Error('MyScript returned no equation.');
@@ -668,8 +715,10 @@ document.addEventListener('DOMContentLoaded', () => {
         console.error('MyScript fallback error:', error);
         alert(`MyScript อ่านไม่สำเร็จ: ${error.message}`);
       } finally {
-        button.disabled = false;
-        button.textContent = original;
+        if (button.dataset.limitReached !== 'true') {
+          button.disabled = false;
+          button.textContent = original;
+        }
       }
     },
 
@@ -2689,6 +2738,13 @@ document.addEventListener('DOMContentLoaded', () => {
           this.recognizeWithMyScript(exprInput, myScriptBtn);
         });
         ocrBtn.insertAdjacentElement('afterend', myScriptBtn);
+        const usageBadge = document.createElement('div');
+        usageBadge.id = 'myscript-usage';
+        usageBadge.className = 'myscript-usage';
+        usageBadge.setAttribute('aria-live', 'polite');
+        usageBadge.textContent = 'MyScript: กำลังโหลดเครดิต...';
+        myScriptBtn.insertAdjacentElement('afterend', usageBadge);
+        this.loadMyScriptUsage();
       }
 
       if (ocrBtn && exprInput) {

@@ -949,6 +949,32 @@ body.is-fullscreen {
   box-shadow: var(--glow-cyan);
 }
 
+.myscript-usage {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.65rem;
+  padding: 0.2rem 0.55rem;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+  font-size: 0.76rem;
+}
+
+.myscript-usage.warning {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.3);
+}
+
+.myscript-usage.exhausted {
+  color: #f87171;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  font-weight: 700;
+}
+
 .quick-math-btn-row {
   display: flex;
   gap: 0.25rem;

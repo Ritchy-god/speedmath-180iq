@@ -1,4 +1,5 @@
 const encoder = new TextEncoder();
+const DEFAULT_LIMIT = 2000;
 
 function json(body, status = 200, origin = '') {
   const headers = {
@@ -40,6 +41,50 @@ async function hmacHex(message, applicationKey, hmacKey) {
   return [...new Uint8Array(signature)].map(byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
+export class MyScriptUsage {
+  constructor(state, env) {
+    this.state = state;
+    this.env = env;
+  }
+
+  async getUsage() {
+    const limit = Math.max(1, Number(this.env.MYSCRIPT_REQUEST_LIMIT) || DEFAULT_LIMIT);
+    let used = await this.state.storage.get('used');
+    if (!Number.isFinite(used)) {
+      used = Math.max(0, Number(this.env.MYSCRIPT_USAGE_OFFSET) || 0);
+      await this.state.storage.put('used', Math.min(used, limit));
+    }
+    used = Math.min(Math.max(0, used), limit);
+    return { used, limit, remaining: Math.max(0, limit - used), limitReached: used >= limit };
+  }
+
+  async fetch(request) {
+    const path = new URL(request.url).pathname;
+    if (path === '/reserve' && request.method === 'POST') {
+      const usage = await this.getUsage();
+      if (usage.limitReached) return json({ allowed: false, usage }, 429);
+      await this.state.storage.put('used', usage.used + 1);
+      return json({ allowed: true, usage: { ...usage, used: usage.used + 1, remaining: usage.remaining - 1, limitReached: usage.used + 1 >= usage.limit } });
+    }
+    if (path === '/exhaust' && request.method === 'POST') {
+      const usage = await this.getUsage();
+      await this.state.storage.put('used', usage.limit);
+      return json({ usage: { ...usage, used: usage.limit, remaining: 0, limitReached: true } });
+    }
+    return json({ usage: await this.getUsage() });
+  }
+}
+
+function usageStub(env) {
+  if (!env.MYSCRIPT_USAGE) throw new Error('Usage counter is not configured');
+  return env.MYSCRIPT_USAGE.get(env.MYSCRIPT_USAGE.idFromName('global'));
+}
+
+async function getUsage(env) {
+  const response = await usageStub(env).fetch('https://usage.internal/status');
+  return (await response.json()).usage;
+}
+
 export default {
   async fetch(request, env) {
     const allowedOrigin = env.ALLOWED_ORIGIN || 'https://ritchy-god.github.io';
@@ -48,11 +93,19 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: 204, headers: {
         'Access-Control-Allow-Origin': allowedOrigin,
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
         'Access-Control-Max-Age': '86400',
         'Vary': 'Origin'
       }});
+    }
+    const path = new URL(request.url).pathname;
+    if (request.method === 'GET' && path === '/usage') {
+      try {
+        return json({ usage: await getUsage(env) }, 200, allowedOrigin);
+      } catch (error) {
+        return json({ error: error.message || 'Usage unavailable' }, 503, allowedOrigin);
+      }
     }
     if (request.method !== 'POST') return json({ error: 'Method not allowed' }, 405, allowedOrigin);
     const contentType = request.headers.get('Content-Type') || '';
@@ -66,6 +119,16 @@ export default {
     }
     try {
       const input = validateInput(await request.json());
+      const reservationResponse = await usageStub(env).fetch('https://usage.internal/reserve', { method: 'POST' });
+      const reservation = await reservationResponse.json();
+      if (!reservation.allowed) {
+        return json({
+          error: 'ครบโควตา MyScript 2,000 ครั้งแล้ว',
+          code: 'MYSCRIPT_LIMIT_REACHED',
+          usage: reservation.usage
+        }, 429, allowedOrigin);
+      }
+      let usage = reservation.usage;
       // The v4 recognizer accepts strokes directly at the top level. Coordinates
       // come from a CSS-pixel canvas, so convert one pixel to millimetres at 96 DPI.
       const millimetresPerPixel = 25.4 / 96;
@@ -90,8 +153,19 @@ export default {
         body: payload
       });
       const latex = await upstream.text();
-      if (!upstream.ok) return json({ error: `MyScript rejected the request (${upstream.status})` }, 502, allowedOrigin);
-      return json({ latex }, 200, allowedOrigin);
+      if (!upstream.ok) {
+        const quotaRejected = [402, 403, 429].includes(upstream.status) && /quota|limit|request/i.test(latex);
+        if (quotaRejected) {
+          const exhausted = await usageStub(env).fetch('https://usage.internal/exhaust', { method: 'POST' });
+          usage = (await exhausted.json()).usage;
+        }
+        return json({
+          error: quotaRejected ? 'ครบโควตา MyScript 2,000 ครั้งแล้ว' : `MyScript rejected the request (${upstream.status})`,
+          code: quotaRejected ? 'MYSCRIPT_LIMIT_REACHED' : 'MYSCRIPT_REJECTED',
+          usage
+        }, quotaRejected ? 429 : 502, allowedOrigin);
+      }
+      return json({ latex, usage }, 200, allowedOrigin);
     } catch (error) {
       return json({ error: error.message || 'Recognition failed' }, 400, allowedOrigin);
     }
