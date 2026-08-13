@@ -6,7 +6,7 @@
   <title>คิดเลขเร็ว 180 IQ - Speed Math Competition</title>
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=latex-preview-1">
+  <link rel="stylesheet" href="styles.css?v=fullscreen-1">
   
   <!-- KaTeX CSS for LaTeX rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -37,6 +37,10 @@
         </button>
         <button id="btn-sound" class="btn-icon" title="เปิด/ปิด เสียง">
           🔊 <span id="sound-status-text">เปิดเสียง</span>
+        </button>
+        <button id="btn-fullscreen" class="btn-icon" title="แสดงผลเต็มจอ" aria-pressed="false">
+          <span id="fullscreen-icon" aria-hidden="true">⛶</span>
+          <span id="fullscreen-status-text">เต็มจอ</span>
         </button>
         <button id="btn-settings" class="btn-icon" title="ตั้งค่า">
           ⚙️ <span>ตั้งค่า</span>
@@ -239,6 +243,6 @@
   <script src="solver.js" onerror="this.onerror=null;this.src='js/solver.js'"></script>
   <script src="audio.js" onerror="this.onerror=null;this.src='js/audio.js'"></script>
   <script src="models/digit-model.js"></script>
-  <script src="app.js?v=latex-preview-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
+  <script src="app.js?v=fullscreen-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
 </body>
 </html>

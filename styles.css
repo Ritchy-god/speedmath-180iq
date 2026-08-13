@@ -131,6 +131,39 @@ body {
   gap: 0.5rem;
 }
 
+#btn-fullscreen[aria-pressed="true"] {
+  color: var(--accent-cyan);
+  background: rgba(0, 242, 254, 0.12);
+  border-color: rgba(0, 242, 254, 0.38);
+}
+
+html:fullscreen,
+html:-webkit-full-screen {
+  background: var(--bg-dark);
+}
+
+body.is-fullscreen {
+  min-height: 100vh;
+}
+
+@media (max-width: 760px) {
+  .app-header {
+    padding: 0.75rem;
+  }
+
+  .header-controls {
+    gap: 0.3rem;
+  }
+
+  .header-controls .btn-icon {
+    padding-inline: 0.55rem;
+  }
+
+  .header-controls .btn-icon > span:not([aria-hidden="true"]) {
+    display: none;
+  }
+}
+
 /* Active state for the scratchpad toggle button */
 #btn-toggle-scratchpad.active {
   background: rgba(99, 102, 241, 0.18);

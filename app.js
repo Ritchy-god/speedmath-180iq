@@ -54,6 +54,9 @@ document.addEventListener('DOMContentLoaded', () => {
     btnCloseScratchpad:   document.getElementById('sp-btn-close'),
     btnSound:             document.getElementById('btn-sound'),
     soundStatusText:      document.getElementById('sound-status-text'),
+    btnFullscreen:        document.getElementById('btn-fullscreen'),
+    fullscreenIcon:       document.getElementById('fullscreen-icon'),
+    fullscreenStatusText: document.getElementById('fullscreen-status-text'),
     btnSettings:          document.getElementById('btn-settings'),
     questionBadge:        document.getElementById('question-badge'),
     compItemCurr:         document.getElementById('comp-item-curr'),
@@ -101,6 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.btnCloseCheckModal,   'click', closeCheckModal);
     on(el.btnConfirmCheckModal, 'click', closeCheckModal);
     on(el.btnSound,             'click', doToggleSound);
+    on(el.btnFullscreen,        'click', doToggleFullscreen);
     on(el.btnSettings,          'click', () => openModal());
     on(el.btnCloseModal,        'click', () => closeModal());
     on(el.btnSaveSettings,      'click', doSaveSettings);
@@ -109,6 +113,8 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.selectGameMode,       'change', onGameModeChange);
     on(el.modalSettings,        'click', (e) => { if (e.target === el.modalSettings) closeModal(); });
     on(el.modalCheckResult,     'click', (e) => { if (e.target === el.modalCheckResult) closeCheckModal(); });
+    on(document,                'fullscreenchange', updateFullscreenButton);
+    on(document,                'webkitfullscreenchange', updateFullscreenButton);
   }
 
   function on(elem, event, fn) {
@@ -2943,6 +2949,49 @@ document.addEventListener('DOMContentLoaded', () => {
         if (el.soundStatusText) el.soundStatusText.textContent = isMuted ? 'ปิดเสียง' : 'เปิดเสียง';
       }
     } catch(e) {}
+  }
+
+  function getFullscreenElement() {
+    return document.fullscreenElement || document.webkitFullscreenElement || null;
+  }
+
+  function updateFullscreenButton() {
+    const isFullscreen = Boolean(getFullscreenElement());
+    document.body.classList.toggle('is-fullscreen', isFullscreen);
+    if (el.btnFullscreen) {
+      el.btnFullscreen.setAttribute('aria-pressed', String(isFullscreen));
+      el.btnFullscreen.title = isFullscreen ? 'ออกจากโหมดเต็มจอ' : 'แสดงผลเต็มจอ';
+    }
+    if (el.fullscreenIcon) el.fullscreenIcon.textContent = isFullscreen ? '↙' : '⛶';
+    if (el.fullscreenStatusText) {
+      el.fullscreenStatusText.textContent = isFullscreen ? 'ออกจากเต็มจอ' : 'เต็มจอ';
+    }
+    requestAnimationFrame(() => {
+      if (scratchpad && scratchpad.resizeCanvas) scratchpad.resizeCanvas();
+      window.dispatchEvent(new Event('resize'));
+    });
+  }
+
+  async function doToggleFullscreen() {
+    playClick();
+    try {
+      if (getFullscreenElement()) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) await exit.call(document);
+        return;
+      }
+
+      const root = document.documentElement;
+      const request = root.requestFullscreen || root.webkitRequestFullscreen;
+      if (!request) {
+        alert('เบราว์เซอร์นี้ไม่รองรับโหมดเต็มจอ กรุณาใช้เมนูเต็มจอของเบราว์เซอร์');
+        return;
+      }
+      await request.call(root);
+    } catch (error) {
+      console.error('Fullscreen error:', error);
+      alert('ไม่สามารถเปิดโหมดเต็มจอได้ กรุณาลองกดปุ่มอีกครั้ง');
+    }
   }
 
   /* ==========================================================================
