@@ -537,6 +537,22 @@ body.is-fullscreen {
   background: rgba(255, 255, 255, 0.06);
 }
 
+.solutions-header.locked {
+  cursor: not-allowed;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.solutions-header.locked:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.solutions-header.locked .badge-count {
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.13);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
 .solutions-title {
   font-size: 1rem;
   font-weight: 600;

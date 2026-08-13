@@ -31,7 +31,8 @@ document.addEventListener('DOMContentLoaded', () => {
     isTimerRunning: false,
     timerInterval: null,
 
-    isSolutionsOpen: false
+    isSolutionsOpen: false,
+    solutionsLocked: true
   };
 
   /* ==========================================================================
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     timerValue:           document.getElementById('timer-value'),
     timerProgress:        document.getElementById('timer-progress'),
     solutionsHeader:      document.getElementById('solutions-header'),
+    solutionsTitleText:   document.getElementById('solutions-title-text'),
     solutionsBadge:       document.getElementById('solutions-badge'),
     solutionsContent:     document.getElementById('solutions-content'),
     solutionsToggle:      document.getElementById('solutions-toggle-icon'),
@@ -109,6 +111,12 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.btnCloseModal,        'click', () => closeModal());
     on(el.btnSaveSettings,      'click', doSaveSettings);
     on(el.solutionsHeader,      'click', toggleSolutions);
+    on(el.solutionsHeader,      'keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        toggleSolutions();
+      }
+    });
     on(el.selectTargetMode,     'change', onTargetModeChange);
     on(el.selectGameMode,       'change', onGameModeChange);
     on(el.modalSettings,        'click', (e) => { if (e.target === el.modalSettings) closeModal(); });
@@ -211,6 +219,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     playClick();
     stopTimer();
+    setSolutionsLocked(true);
     rollNewDigits();
     if (scratchpad) scratchpad.clear();
 
@@ -235,7 +244,7 @@ document.addEventListener('DOMContentLoaded', () => {
         el.targetBox.textContent = '??';
         el.targetBox.classList.add('puzzle-masked');
       }
-      setBadge('? คำตอบ');
+      setBadge('🔒 ล็อก');
       setSolutionsPlaceholder('🔒 กดปุ่ม "🎯 2. สุ่มคำตอบ & เริ่มเวลา" เพื่อแสดงเฉลย');
       resetTimerDisplay();
     }
@@ -295,6 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function loadNewPuzzle() {
     stopTimer();
+    setSolutionsLocked(true);
     state.isDigitsRevealed = false;
     state.isPuzzleRevealed = false;
     rollNewDigits();
@@ -318,7 +328,7 @@ document.addEventListener('DOMContentLoaded', () => {
       el.targetBox.textContent = '??';
       el.targetBox.classList.add('puzzle-masked');
     }
-    setBadge('? คำตอบ');
+    setBadge('🔒 ล็อก');
     setSolutionsPlaceholder('🔒 กดปุ่ม "🎯 2. สุ่มคำตอบ & เริ่มเวลา" เพื่อเริ่มเกม');
   }
 
@@ -334,6 +344,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderSolutions() {
+    if (state.solutionsLocked) {
+      setBadge('🔒 ล็อก');
+      setSolutionsPlaceholder('🔒 เฉลยจะพร้อมให้ดูเมื่อหมดเวลา');
+      return;
+    }
+
     const list = state.solutions || [];
     setBadge(`${list.length} คำตอบ`);
     if (!el.solutionsContent) return;
@@ -380,9 +396,46 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function toggleSolutions() {
+    if (state.solutionsLocked) {
+      playWarning();
+      return;
+    }
     state.isSolutionsOpen = !state.isSolutionsOpen;
     if (el.solutionsContent) el.solutionsContent.classList.toggle('open', state.isSolutionsOpen);
     if (el.solutionsToggle) el.solutionsToggle.style.transform = state.isSolutionsOpen ? 'rotate(180deg)' : 'rotate(0deg)';
+    if (el.solutionsHeader) el.solutionsHeader.setAttribute('aria-expanded', String(state.isSolutionsOpen));
+  }
+
+  function setSolutionsLocked(locked) {
+    state.solutionsLocked = locked;
+    if (el.solutionsHeader) {
+      el.solutionsHeader.classList.toggle('locked', locked);
+      el.solutionsHeader.setAttribute('aria-disabled', String(locked));
+      el.solutionsHeader.title = locked ? 'เฉลยจะเปิดเมื่อหมดเวลา' : 'กดเพื่อแสดงหรือซ่อนเฉลย';
+    }
+    if (el.solutionsTitleText) {
+      el.solutionsTitleText.textContent = locked
+        ? '🔒 เฉลยจะเปิดเมื่อหมดเวลา'
+        : '💡 แสดงคำตอบที่เป็นไปได้ทั้งหมด (LaTeX Format)';
+    }
+
+    if (locked) {
+      state.isSolutionsOpen = false;
+      if (el.solutionsContent) {
+        el.solutionsContent.classList.remove('open');
+        setSolutionsPlaceholder('🔒 เฉลยจะพร้อมให้ดูเมื่อหมดเวลา');
+      }
+      if (el.solutionsToggle) {
+        el.solutionsToggle.textContent = '🔒';
+        el.solutionsToggle.style.transform = 'rotate(0deg)';
+      }
+      if (el.solutionsHeader) el.solutionsHeader.setAttribute('aria-expanded', 'false');
+      setBadge('🔒 ล็อก');
+      return;
+    }
+
+    if (el.solutionsToggle) el.solutionsToggle.textContent = '▼';
+    renderSolutions();
   }
 
   /* ==========================================================================
@@ -411,9 +464,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const m = state.timerMode;
     if (m === 'none') {
+      setSolutionsLocked(false);
       if (el.timerValue) el.timerValue.textContent = '∞';
       return;
     }
+
+    setSolutionsLocked(true);
 
     const isCountUp = m === 'countup';
     const totalSecs = isCountUp ? 0 : getTimerSeconds();
@@ -438,6 +494,7 @@ document.addEventListener('DOMContentLoaded', () => {
           stopTimer();
           playAlarm();
           state.hasCompletedRound = true;
+          setSolutionsLocked(false);
           updateCheckAnswerButtonVisibility();
           return;
         }
@@ -2764,7 +2821,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function doCheckAnswer() {
     playClick();
-    if (state.timerMode === 'countup') stopTimer();
+    if (state.timerMode === 'countup') {
+      stopTimer();
+      setSolutionsLocked(false);
+    }
     const exprInput = document.getElementById('scratchpad-expr-input');
     const expr = exprInput ? exprInput.value.trim() : '';
 

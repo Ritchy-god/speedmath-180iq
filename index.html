@@ -6,7 +6,7 @@
   <title>คิดเลขเร็ว 180 IQ - Speed Math Competition</title>
   
   <!-- CSS Stylesheet -->
-  <link rel="stylesheet" href="styles.css?v=fullscreen-1">
+  <link rel="stylesheet" href="styles.css?v=solutions-lock-1">
   
   <!-- KaTeX CSS for LaTeX rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -105,9 +105,9 @@
 
     <!-- Solutions Panel displaying LaTeX equations -->
     <div class="solutions-panel">
-      <div id="solutions-header" class="solutions-header">
+      <div id="solutions-header" class="solutions-header" role="button" tabindex="0" aria-expanded="false" aria-disabled="true">
         <div class="solutions-title">
-          <span>💡 แสดงคำตอบที่เป็นไปได้ทั้งหมด (LaTeX Format)</span>
+          <span id="solutions-title-text">🔒 เฉลยจะเปิดเมื่อหมดเวลา</span>
           <span id="solutions-badge" class="badge-count">0 คำตอบ</span>
         </div>
         <span id="solutions-toggle-icon" style="font-size: 1.2rem; transition: transform 0.2s ease;">▼</span>
@@ -243,6 +243,6 @@
   <script src="solver.js" onerror="this.onerror=null;this.src='js/solver.js'"></script>
   <script src="audio.js" onerror="this.onerror=null;this.src='js/audio.js'"></script>
   <script src="models/digit-model.js"></script>
-  <script src="app.js?v=fullscreen-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
+  <script src="app.js?v=solutions-lock-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
 </body>
 </html>
