@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
     { file: 'face-13.jpg', x: 49, y: 30 },
     { file: 'face-14.jpg', x: 58, y: 26.6 }
   ].map(face => ({ ...face, src: `assets/ninja-faces/${face.file}` }));
+  const FANCY_HUES = [342, 24, 52, 112, 168, 204, 248, 292];
   const SPEEDS = {
     slow:   { multiplier: 0.72, questionMs: 12000 },
     normal: { multiplier: 1,    questionMs: 10000 },
@@ -599,6 +600,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const radius = state.fancyMode ? (width <= 760 ? 56 : 64) : (width <= 760 ? 33 : 38);
     const answers = makeAnswers(answer, state.settings.ballCount);
     const fancyHeads = state.fancyMode ? shuffle([...FANCY_HEADS]).slice(0, answers.length) : [];
+    const fancyHues = state.fancyMode ? shuffle([...FANCY_HUES]).slice(0, answers.length) : [];
     const columns = Math.min(4, answers.length);
     const rows = Math.ceil(answers.length / columns);
     const speed = SPEEDS[state.settings.speed].multiplier;
@@ -631,6 +633,7 @@ document.addEventListener('DOMContentLoaded', () => {
       element.className = `ninja-ball${state.fancyMode ? ' fancy-character' : ''}`;
       if (state.fancyMode) {
         element.style.setProperty('--limb-delay', `${-index * 0.075}s`);
+        element.style.setProperty('--character-hue', fancyHues[index]);
         const limbNames = ['left-arm', 'right-arm', 'left-leg', 'right-leg'];
         const limbs = limbNames.map(name => {
           const limb = document.createElement('span');
@@ -650,6 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const answerLabel = document.createElement('span');
         answerLabel.className = 'ninja-ball-answer';
         answerLabel.textContent = String(value);
+        answerLabel.dataset.digits = String(value).length;
         element.append(...limbs, headFrame, answerLabel);
       } else {
         element.textContent = String(value);

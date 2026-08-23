@@ -511,13 +511,17 @@ body.ninja-mode-playing {
 
 .ninja-ball.fancy-character {
   overflow: visible;
-  border-color: rgba(255, 235, 139, 0.95);
+  border-color: hsl(var(--character-hue, 342) 95% 82%);
   background:
     radial-gradient(circle at 34% 25%, rgba(255, 255, 255, 0.8), transparent 13%),
-    linear-gradient(145deg, #ff5fb7, #7939dd 75%);
+    linear-gradient(
+      145deg,
+      hsl(var(--character-hue, 342) 92% 64%),
+      hsl(calc(var(--character-hue, 342) + 34) 72% 39%) 78%
+    );
   box-shadow:
     inset -10px -12px 18px rgba(0, 0, 0, 0.22),
-    0 0 0 4px rgba(255, 221, 111, 0.14),
+    0 0 0 4px hsl(var(--character-hue, 342) 95% 68% / 0.18),
     0 14px 28px rgba(0, 0, 0, 0.38);
 }
 
@@ -535,7 +539,11 @@ body.ninja-mode-playing {
   top: 27px;
   height: 46px;
   transform-origin: 50% 7px;
-  background: linear-gradient(180deg, #ff6aa6, #ffad48);
+  background: linear-gradient(
+    180deg,
+    hsl(var(--character-hue, 342) 96% 70%),
+    hsl(calc(var(--character-hue, 342) + 24) 88% 54%)
+  );
 }
 
 .ninja-left-arm {
@@ -545,7 +553,11 @@ body.ninja-mode-playing {
 
 .ninja-right-arm {
   right: -7px;
-  background: linear-gradient(180deg, #5bdcff, #7650df);
+  background: linear-gradient(
+    180deg,
+    hsl(calc(var(--character-hue, 342) + 18) 96% 72%),
+    hsl(calc(var(--character-hue, 342) + 46) 82% 52%)
+  );
   animation: ninja-right-arm-wiggle 0.48s ease-in-out var(--limb-delay, 0s) infinite alternate;
 }
 
@@ -554,7 +566,11 @@ body.ninja-mode-playing {
   bottom: -28px;
   height: 42px;
   transform-origin: 50% 6px;
-  background: linear-gradient(180deg, #8351df, #5e2ebd);
+  background: linear-gradient(
+    180deg,
+    hsl(calc(var(--character-hue, 342) + 20) 78% 49%),
+    hsl(calc(var(--character-hue, 342) + 42) 75% 31%)
+  );
 }
 
 .ninja-left-leg {
@@ -596,7 +612,7 @@ body.ninja-mode-playing {
   height: 56px;
   overflow: hidden;
   transform: translateX(-50%);
-  border: 3px solid #fff2a8;
+  border: 3px solid hsl(var(--character-hue, 342) 95% 82%);
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.36), 0 0 18px rgba(255, 220, 96, 0.35);
@@ -617,16 +633,28 @@ body.ninja-mode-playing {
   z-index: 3;
   display: grid;
   place-items: center;
-  min-width: 44px;
-  min-height: 31px;
-  margin-top: 20px;
-  padding: 0 0.3rem;
-  border: 2px solid rgba(255, 255, 255, 0.75);
-  border-radius: 10px;
+  width: calc(100% - 10px);
+  height: calc(100% - 20px);
+  min-width: 0;
+  min-height: 0;
+  margin-top: 18px;
+  padding: 0 0.15rem;
+  border: 3px solid rgba(255, 255, 255, 0.88);
+  border-radius: 50%;
   color: #fff;
-  background: rgba(10, 15, 30, 0.76);
-  font: 900 1rem var(--font-mono);
+  background:
+    radial-gradient(circle at 35% 25%, rgba(255, 255, 255, 0.24), transparent 22%),
+    hsl(var(--character-hue, 342) 58% 20% / 0.94);
+  font: 900 1.65rem/1 var(--font-mono);
   text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+
+.ninja-ball-answer[data-digits="3"] {
+  font-size: 1.3rem;
+}
+
+.ninja-ball-answer[data-digits="4"] {
+  font-size: 1.05rem;
 }
 
 .ninja-ball.hit-correct {
