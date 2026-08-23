@@ -245,9 +245,14 @@
 
 .ninja-fancy-code-form {
   display: flex;
-  flex: 1;
+  flex: 1 1 360px;
   min-width: min(100%, 320px);
   gap: 0.55rem;
+}
+
+.ninja-fancy-code-form[hidden],
+.ninja-fancy-start-btn[hidden] {
+  display: none !important;
 }
 
 .ninja-fancy-code-input {
@@ -275,6 +280,12 @@
   background: linear-gradient(135deg, #ffe45e, #ff75c8);
   font: 900 0.86rem var(--font-main);
   cursor: pointer;
+}
+
+.ninja-fancy-code-btn.is-locking {
+  color: #fff;
+  background: linear-gradient(135deg, #e34261, #a32143);
+  box-shadow: 0 8px 20px rgba(227, 66, 97, 0.22);
 }
 
 .ninja-fancy-code-error {

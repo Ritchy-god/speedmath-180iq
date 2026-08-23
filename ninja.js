@@ -130,9 +130,9 @@ document.addEventListener('DOMContentLoaded', () => {
             <span id="ninja-fancy-access-status">ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที</span>
           </div>
           <form id="ninja-fancy-code-form" class="ninja-fancy-code-form">
-            <label class="sr-only" for="ninja-fancy-code">รหัสปลดล็อกโหมดแฟนซี</label>
+            <label id="ninja-fancy-code-label" class="sr-only" for="ninja-fancy-code">รหัสปลดล็อกโหมดแฟนซี</label>
             <input id="ninja-fancy-code" class="ninja-fancy-code-input" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="รหัสผ่าน 8 หลัก">
-            <button class="ninja-fancy-code-btn" type="submit">🔓 ปลดล็อกและเล่น</button>
+            <button id="ninja-fancy-code-submit" class="ninja-fancy-code-btn" type="submit">🔓 ปลดล็อกและเล่น</button>
           </form>
           <button id="ninja-fancy-quick-start" class="ninja-fancy-start-btn" type="button" hidden>✨ เล่นโหมดแฟนซีทันที</button>
           <div id="ninja-fancy-code-error" class="ninja-fancy-code-error" role="alert"></div>
@@ -200,7 +200,9 @@ document.addEventListener('DOMContentLoaded', () => {
     settingsError: document.getElementById('ninja-settings-error'),
     fancyAccessStatus: document.getElementById('ninja-fancy-access-status'),
     fancyCodeForm: document.getElementById('ninja-fancy-code-form'),
+    fancyCodeLabel: document.getElementById('ninja-fancy-code-label'),
     fancyCode: document.getElementById('ninja-fancy-code'),
+    fancyCodeSubmit: document.getElementById('ninja-fancy-code-submit'),
     fancyCodeError: document.getElementById('ninja-fancy-code-error'),
     fancyQuickStart: document.getElementById('ninja-fancy-quick-start'),
     start: document.getElementById('ninja-start'),
@@ -318,6 +320,20 @@ document.addEventListener('DOMContentLoaded', () => {
         ui.fancyCode.select();
         return;
       }
+
+      if (state.fancyCodeUnlocked) {
+        state.fancyCodeUnlocked = false;
+        try {
+          sessionStorage.removeItem(FANCY_UNLOCK_KEY);
+        } catch (_) {
+          // The in-page state still locks even when storage is unavailable.
+        }
+        ui.fancyCode.value = '';
+        ui.fancyCodeError.textContent = '';
+        refreshFancyAccess();
+        return;
+      }
+
       state.fancyCodeUnlocked = true;
       try {
         sessionStorage.setItem(FANCY_UNLOCK_KEY, '1');
@@ -425,10 +441,22 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function refreshFancyAccess() {
-    ui.fancyCodeForm.hidden = state.fancyCodeUnlocked;
+    const unlocked = state.fancyCodeUnlocked;
+    ui.fancyCodeForm.hidden = false;
+    ui.fancyCodeForm.dataset.action = unlocked ? 'lock' : 'unlock';
+    ui.fancyCodeLabel.textContent = unlocked
+      ? 'ใส่รหัสเพื่อปิดโหมดแฟนซี'
+      : 'รหัสปลดล็อกโหมดแฟนซี';
+    ui.fancyCode.placeholder = unlocked
+      ? 'ใส่รหัสเพื่อปิดโหมดแฟนซี'
+      : 'รหัสผ่าน 8 หลัก';
+    ui.fancyCodeSubmit.textContent = unlocked
+      ? '🔒 ปิดโหมดแฟนซี'
+      : '🔓 ปลดล็อกและเล่น';
+    ui.fancyCodeSubmit.classList.toggle('is-locking', unlocked);
     ui.fancyQuickStart.hidden = !state.fancyCodeUnlocked;
-    ui.fancyAccessStatus.textContent = state.fancyCodeUnlocked
-      ? 'ปลดล็อกแล้ว — เข้าเล่นด่านแฟนซี 5 ข้อได้ทันที'
+    ui.fancyAccessStatus.textContent = unlocked
+      ? 'เปิดใช้งานอยู่ — ใส่รหัสเดิมเพื่อปิด หรือเข้าเล่นได้ทันที'
       : 'ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที';
   }
 
