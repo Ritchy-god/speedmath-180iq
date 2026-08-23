@@ -15,10 +15,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const STORAGE_KEY = 'speedmath-math-ninja-settings-v1';
   const ALLOWED_OPERATIONS = ['add', 'subtract', 'multiply', 'divide', 'power', 'sqrt'];
   const SPEEDS = {
-    slow:   { multiplier: 0.72, gravity: 520, questionMs: 12000 },
-    normal: { multiplier: 1,    gravity: 680, questionMs: 10000 },
-    fast:   { multiplier: 1.28, gravity: 820, questionMs: 8000 },
-    ninja:  { multiplier: 1.55, gravity: 980, questionMs: 6500 }
+    slow:   { multiplier: 0.72, questionMs: 12000 },
+    normal: { multiplier: 1,    questionMs: 10000 },
+    fast:   { multiplier: 1.28, questionMs: 8000 },
+    ninja:  { multiplier: 1.55, questionMs: 6500 }
   };
 
   const state = {
@@ -446,6 +446,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const columns = Math.min(4, answers.length);
     const rows = Math.ceil(answers.length / columns);
     const speed = SPEEDS[state.settings.speed].multiplier;
+    const rowHeight = Math.max(radius * 2, (height - radius * 2) / rows);
 
     state.balls = answers.map((value, index) => {
       const row = Math.floor(index / columns);
@@ -453,7 +454,11 @@ document.addEventListener('DOMContentLoaded', () => {
       const itemsInRow = Math.min(columns, answers.length - row * columns);
       const slotWidth = width / itemsInRow;
       const x = slotWidth * (column + 0.5) + randomInt(-Math.min(20, slotWidth * 0.12), Math.min(20, slotWidth * 0.12));
-      const y = height - radius - 18 - row * Math.min(88, height * 0.17);
+      const y = radius + rowHeight * (row + 0.5) + randomInt(-Math.min(18, rowHeight * 0.1), Math.min(18, rowHeight * 0.1));
+      const travelSpeed = randomInt(180, 260) * speed;
+      const angle = randomInt(28, 62) * Math.PI / 180;
+      const horizontalDirection = Math.random() < 0.5 ? -1 : 1;
+      const verticalDirection = Math.random() < 0.5 ? -1 : 1;
       const element = document.createElement('div');
       const ball = {
         id: state.nextBallId++,
@@ -461,8 +466,8 @@ document.addEventListener('DOMContentLoaded', () => {
         correct: value === answer,
         x: clamp(x, radius, width - radius),
         y: clamp(y, radius, height - radius),
-        vx: randomInt(75, 145) * speed * (Math.random() < 0.5 ? -1 : 1),
-        vy: -randomInt(430, 590) * speed * (0.9 + row * 0.08),
+        vx: Math.cos(angle) * travelSpeed * horizontalDirection,
+        vy: Math.sin(angle) * travelSpeed * verticalDirection,
         radius,
         sliced: false,
         element
@@ -481,11 +486,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const dt = state.frameAt ? Math.min(0.035, (timestamp - state.frameAt) / 1000) : 0;
     state.frameAt = timestamp;
     const rect = ui.arena.getBoundingClientRect();
-    const gravity = SPEEDS[state.settings.speed].gravity;
 
     for (const ball of state.balls) {
       if (ball.sliced) continue;
-      ball.vy += gravity * dt;
       ball.x += ball.vx * dt;
       ball.y += ball.vy * dt;
 
@@ -499,10 +502,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (ball.y - ball.radius < 0) {
         ball.y = ball.radius;
-        ball.vy = Math.abs(ball.vy) * 0.88;
+        ball.vy = Math.abs(ball.vy);
       } else if (ball.y + ball.radius > rect.height) {
         ball.y = rect.height - ball.radius;
-        ball.vy = -Math.max(380, Math.abs(ball.vy) * 0.88);
+        ball.vy = -Math.abs(ball.vy);
       }
       renderBall(ball);
     }
