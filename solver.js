@@ -40,71 +40,178 @@ const MathSolver = {
 
   solve(digits, target, opts = {}) {
     const max = opts.maxSolutions || 25;
-    const found = new Map();
+    const candidates = new Map();
+    const passLimit = Math.max(60, max * 4);
 
-    function unary(node) {
-      const out = [node];
-      const v = node.val;
-      if (v >= 0 && v <= 5 && Number.isInteger(v) && !node.expr.endsWith('!')) {
-        const f = MathEngine.factorial(v);
-        if (isFinite(f)) {
-          const inner = node.expr;
-          const e = (/^[0-9]+$/.test(inner) || (inner[0] === '(' && inner.slice(-1) === ')')) ? `${inner}!` : `(${inner})!`;
-          out.push({ expr: e, val: f });
-        }
-      }
-      if (v > 0 && v <= 81 && !node.expr.startsWith('√')) {
-        const sq = Math.sqrt(v);
-        if (Number.isInteger(sq)) {
-          const inner = node.expr;
-          const e = (/^[0-9]+!?$/.test(inner) || (inner[0] === '(' && inner.slice(-1) === ')')) ? `√${inner}` : `√(${inner})`;
-          out.push({ expr: e, val: sq });
-        }
-      }
-      return out;
-    }
+    // Search separate strategy families. A single DFS used to stop after the
+    // first 25 hits, and factorial branches reached that limit before ordinary
+    // arithmetic had a fair chance to be explored.
+    function search(config, limit) {
+      const found = new Map();
+      const stateVisits = new Map();
+      const stateVisitCap = digits.length >= 5 ? 12 : 24;
 
-    function rec(nodes) {
-      if (found.size >= max) return;
-      if (nodes.length === 1) {
-        for (const fv of unary(nodes[0])) {
-          if (Math.abs(fv.val - target) < 1e-7) {
-            const key = MathSolver.simplify(fv.expr);
-            if (!found.has(key)) found.set(key, MathSolver.toLaTeX(key));
+      function unary(node) {
+        const out = [node];
+        const v = node.val;
+        if (config.factorial && v >= 0 && v <= 5 && Number.isInteger(v) && !node.expr.endsWith('!')) {
+          const f = MathEngine.factorial(v);
+          if (isFinite(f)) {
+            const inner = node.expr;
+            const e = (/^[0-9]+$/.test(inner) || (inner[0] === '(' && inner.slice(-1) === ')')) ? `${inner}!` : `(${inner})!`;
+            out.push({ expr: e, val: f, literal: false });
           }
         }
-        return;
+        if (config.sqrt && v > 0 && v <= 81 && !node.expr.startsWith('√')) {
+          const sq = Math.sqrt(v);
+          if (Number.isInteger(sq)) {
+            const inner = node.expr;
+            const e = (/^[0-9]+!?$/.test(inner) || (inner[0] === '(' && inner.slice(-1) === ')')) ? `√${inner}` : `√(${inner})`;
+            out.push({ expr: e, val: sq, literal: false });
+          }
+        }
+        return out;
       }
-      for (let i = 0; i < nodes.length; i++) {
-        for (let j = i + 1; j < nodes.length; j++) {
-          const rem = nodes.filter((_, k) => k !== i && k !== j);
-          for (const a of unary(nodes[i])) {
-            for (const b of unary(nodes[j])) {
-              const pairs = [
-                { expr: `(${a.expr} + ${b.expr})`, val: a.val + b.val },
-                { expr: `(${a.expr} - ${b.expr})`, val: a.val - b.val },
-                { expr: `(${b.expr} - ${a.expr})`, val: b.val - a.val },
-                { expr: `(${a.expr} × ${b.expr})`, val: a.val * b.val },
-              ];
-              if (b.val !== 0) pairs.push({ expr: `(${a.expr} ÷ ${b.expr})`, val: a.val / b.val });
-              if (a.val !== 0) pairs.push({ expr: `(${b.expr} ÷ ${a.expr})`, val: b.val / a.val });
-              if (a.val > 0 && a.val <= 10 && b.val >= 0 && b.val <= 4) {
-                const pv = Math.pow(a.val, b.val);
-                if (isFinite(pv) && pv <= 9999) pairs.push({ expr: `(${a.expr} ^ ${b.expr})`, val: pv });
-              }
-              for (const p of pairs) {
-                if (!isFinite(p.val)) continue;
-                rec([...rem, p]);
-                if (found.size >= max) return;
+
+      function addResult(node) {
+        if (Math.abs(node.val - target) >= 1e-7) return;
+        const key = MathSolver.simplify(node.expr);
+        const checked = MathEngine.evaluate(key);
+        if (!checked.success || Math.abs(checked.result - target) >= 1e-7) return;
+        if (!MathEngine.validateDigitUsage(key, digits).isValid) return;
+        if (!found.has(key)) found.set(key, MathSolver.toLaTeX(key));
+      }
+
+      function rec(nodes) {
+        if (found.size >= limit) return;
+        if (nodes.length === 1) {
+          for (const fv of unary(nodes[0])) addResult(fv);
+          return;
+        }
+        const stateKey = nodes
+          .map(node => `${Math.round(node.val * 1e7) / 1e7}:${node.literal ? 1 : 0}`)
+          .sort()
+          .join('|');
+        const visits = (stateVisits.get(stateKey) || 0) + 1;
+        stateVisits.set(stateKey, visits);
+        if (visits > stateVisitCap) return;
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const rem = nodes.filter((_, k) => k !== i && k !== j);
+            for (const a of unary(nodes[i])) {
+              for (const b of unary(nodes[j])) {
+                const pairs = [
+                  { expr: `(${a.expr} + ${b.expr})`, val: a.val + b.val, literal: false },
+                  { expr: `(${a.expr} - ${b.expr})`, val: a.val - b.val, literal: false },
+                  { expr: `(${b.expr} - ${a.expr})`, val: b.val - a.val, literal: false },
+                  { expr: `(${a.expr} × ${b.expr})`, val: a.val * b.val, literal: false },
+                ];
+                if (b.val !== 0) pairs.push({ expr: `(${a.expr} ÷ ${b.expr})`, val: a.val / b.val, literal: false });
+                if (a.val !== 0) pairs.push({ expr: `(${b.expr} ÷ ${a.expr})`, val: b.val / a.val, literal: false });
+                if (config.power && a.val > 0 && a.val <= 10 && b.val >= 0 && b.val <= 4) {
+                  const pv = Math.pow(a.val, b.val);
+                  if (isFinite(pv) && pv <= 9999) pairs.push({ expr: `(${a.expr} ^ ${b.expr})`, val: pv, literal: false });
+                }
+                if (config.power && b.val > 0 && b.val <= 10 && a.val >= 0 && a.val <= 4) {
+                  const pv = Math.pow(b.val, a.val);
+                  if (isFinite(pv) && pv <= 9999) pairs.push({ expr: `(${b.expr} ^ ${a.expr})`, val: pv, literal: false });
+                }
+
+                // Sigma is a genuine two-digit operation here: both bounds must
+                // be untouched puzzle digits. This prevents invented constants
+                // and keeps validateDigitUsage() exact.
+                if (
+                  config.sigma && a.literal && b.literal &&
+                  Number.isInteger(a.val) && Number.isInteger(b.val) &&
+                  a.val >= 0 && a.val < b.val && b.val <= 9
+                ) {
+                  const sv = MathEngine.sigma(a.val, b.val);
+                  if (isFinite(sv)) {
+                    pairs.push({
+                      expr: `\\sum_{i=${a.expr}}^{${b.expr}} i`,
+                      val: sv,
+                      literal: false
+                    });
+                  }
+                }
+                if (
+                  config.sigma && a.literal && b.literal &&
+                  Number.isInteger(a.val) && Number.isInteger(b.val) &&
+                  b.val >= 0 && b.val < a.val && a.val <= 9
+                ) {
+                  const sv = MathEngine.sigma(b.val, a.val);
+                  if (isFinite(sv)) {
+                    pairs.push({
+                      expr: `\\sum_{i=${b.expr}}^{${a.expr}} i`,
+                      val: sv,
+                      literal: false
+                    });
+                  }
+                }
+
+                for (const p of pairs) {
+                  if (!isFinite(p.val) || Math.abs(p.val) > 999999) continue;
+                  rec([...rem, p]);
+                  if (found.size >= limit) return;
+                }
               }
             }
           }
         }
       }
+
+      rec(digits.map(d => ({ expr: `${d}`, val: d, literal: true })));
+      for (const [raw, latex] of found) {
+        if (!candidates.has(raw)) candidates.set(raw, { raw, latex });
+      }
     }
 
-    rec(digits.map(d => ({ expr: `${d}`, val: d })));
-    return [...found.entries()].map(([raw, latex]) => ({ raw, latex }));
+    search({ factorial: false, sqrt: false, power: false, sigma: false }, passLimit);
+    search({ factorial: false, sqrt: false, power: true,  sigma: false }, passLimit);
+    search({ factorial: false, sqrt: true,  power: true,  sigma: false }, passLimit);
+    search({ factorial: false, sqrt: true,  power: true,  sigma: true  }, passLimit);
+    search({ factorial: true,  sqrt: true,  power: true,  sigma: true  }, passLimit * 2);
+
+    function quality(solution) {
+      const raw = solution.raw;
+      const factorials = (raw.match(/!/g) || []).length;
+      const roots = (raw.match(/√/g) || []).length;
+      const powers = (raw.match(/\^/g) || []).length;
+      const sigmas = (raw.match(/\\sum/g) || []).length;
+      const operators = (raw.match(/[+\-×÷]/g) || []).length;
+      return raw.length * 0.025 + operators + roots * 1.4 + powers * 1.8 + sigmas * 1.2 + factorials * 5;
+    }
+
+    const buckets = { basic: [], sigma: [], advanced: [], factorial: [] };
+    for (const solution of candidates.values()) {
+      if (solution.raw.includes('!')) buckets.factorial.push(solution);
+      else if (solution.raw.includes('\\sum')) buckets.sigma.push(solution);
+      else if (/[√^]/.test(solution.raw)) buckets.advanced.push(solution);
+      else buckets.basic.push(solution);
+    }
+    for (const bucket of Object.values(buckets)) bucket.sort((a, b) => quality(a) - quality(b));
+
+    // Round-robin makes different methods visible near the top. Factorial is
+    // capped; returning fewer useful answers is better than a wall of cosmetic
+    // factorial variations.
+    const selected = [];
+    const factorialCap = Math.max(3, Math.floor(max * 0.25));
+    const order = ['basic', 'sigma', 'advanced', 'factorial'];
+    let factorialCount = 0;
+    while (selected.length < max) {
+      let added = false;
+      for (const name of order) {
+        if (selected.length >= max) break;
+        if (name === 'factorial' && factorialCount >= factorialCap) continue;
+        const next = buckets[name].shift();
+        if (!next) continue;
+        selected.push(next);
+        if (name === 'factorial') factorialCount++;
+        added = true;
+      }
+      if (!added) break;
+    }
+    return selected;
   },
 
   generateSolvablePuzzle(digitCount = 4, targetMode = '2digit') {
@@ -114,17 +221,18 @@ const MathSolver = {
 
       // Fast reachability check
       const reachable = new Set();
+      const reachableWithoutFactorial = new Set();
 
       function getUnary(node) {
         const out = [node];
         const v = node.val;
         if (v >= 0 && v <= 5 && Number.isInteger(v)) {
           const f = MathEngine.factorial(v);
-          if (isFinite(f)) out.push({ val: f });
+          if (isFinite(f)) out.push({ val: f, usesFactorial: true });
         }
         if (v > 0 && v <= 81) {
           const sq = Math.sqrt(v);
-          if (Number.isInteger(sq)) out.push({ val: sq });
+          if (Number.isInteger(sq)) out.push({ val: sq, usesFactorial: node.usesFactorial });
         }
         return out;
       }
@@ -134,7 +242,10 @@ const MathSolver = {
         if (nodes.length === 1) {
           for (const u of getUnary(nodes[0])) {
             const v = Math.round(u.val);
-            if (Math.abs(u.val - v) < 1e-7 && v >= 0 && v <= 999) reachable.add(v);
+            if (Math.abs(u.val - v) < 1e-7 && v >= 0 && v <= 999) {
+              reachable.add(v);
+              if (!u.usesFactorial) reachableWithoutFactorial.add(v);
+            }
           }
           return;
         }
@@ -148,7 +259,7 @@ const MathSolver = {
                 if (a.val !== 0) vals.push(b.val / a.val);
                 for (const v of vals) {
                   if (!isFinite(v)) continue;
-                  explore([...rem, { val: v }]);
+                  explore([...rem, { val: v, usesFactorial: a.usesFactorial || b.usesFactorial }]);
                   if (reachable.size > 400) return;
                 }
               }
@@ -157,18 +268,19 @@ const MathSolver = {
         }
       }
 
-      explore(digits.map(d => ({ val: d })));
+      explore(digits.map(d => ({ val: d, usesFactorial: false })));
 
-      let targets = [];
-      if (targetMode === '24') {
-        if (reachable.has(24)) targets = [24];
-      } else if (targetMode === '2digit') {
-        targets = [...reachable].filter(v => v >= 10 && v <= 99);
-      } else if (targetMode === '3digit') {
-        targets = [...reachable].filter(v => v >= 100 && v <= 999);
-      } else {
-        targets = [...reachable].filter(v => v >= 10 && v <= 999);
+      function targetsFor(values) {
+        if (targetMode === '24') return values.has(24) ? [24] : [];
+        if (targetMode === '2digit') return [...values].filter(v => v >= 10 && v <= 99);
+        if (targetMode === '3digit') return [...values].filter(v => v >= 100 && v <= 999);
+        return [...values].filter(v => v >= 10 && v <= 999);
       }
+
+      // Prefer targets with at least one non-factorial construction. Fall back
+      // only when the chosen mode genuinely has no such reachable target.
+      let targets = targetsFor(reachableWithoutFactorial);
+      if (targets.length === 0) targets = targetsFor(reachable);
 
       if (targets.length === 0) continue;
       const t = targets[Math.floor(Math.random() * targets.length)];
@@ -187,17 +299,18 @@ const MathSolver = {
     if (!digits || digits.length === 0) return this.generateSolvablePuzzle(4, targetMode);
 
     const reachable = new Set();
+    const reachableWithoutFactorial = new Set();
 
     function getUnary(node) {
       const out = [node];
       const v = node.val;
       if (v >= 0 && v <= 5 && Number.isInteger(v)) {
         const f = MathEngine.factorial(v);
-        if (isFinite(f)) out.push({ val: f });
+        if (isFinite(f)) out.push({ val: f, usesFactorial: true });
       }
       if (v > 0 && v <= 81) {
         const sq = Math.sqrt(v);
-        if (Number.isInteger(sq)) out.push({ val: sq });
+        if (Number.isInteger(sq)) out.push({ val: sq, usesFactorial: node.usesFactorial });
       }
       return out;
     }
@@ -207,7 +320,10 @@ const MathSolver = {
       if (nodes.length === 1) {
         for (const u of getUnary(nodes[0])) {
           const v = Math.round(u.val);
-          if (Math.abs(u.val - v) < 1e-7 && v >= 0 && v <= 999) reachable.add(v);
+          if (Math.abs(u.val - v) < 1e-7 && v >= 0 && v <= 999) {
+            reachable.add(v);
+            if (!u.usesFactorial) reachableWithoutFactorial.add(v);
+          }
         }
         return;
       }
@@ -221,7 +337,7 @@ const MathSolver = {
               if (a.val !== 0) vals.push(b.val / a.val);
               for (const v of vals) {
                 if (!isFinite(v)) continue;
-                explore([...rem, { val: v }]);
+                explore([...rem, { val: v, usesFactorial: a.usesFactorial || b.usesFactorial }]);
                 if (reachable.size > 400) return;
               }
             }
@@ -230,18 +346,17 @@ const MathSolver = {
       }
     }
 
-    explore(digits.map(d => ({ val: d })));
+    explore(digits.map(d => ({ val: d, usesFactorial: false })));
 
-    let targets = [];
-    if (targetMode === '24') {
-      if (reachable.has(24)) targets = [24];
-    } else if (targetMode === '2digit') {
-      targets = [...reachable].filter(v => v >= 10 && v <= 99);
-    } else if (targetMode === '3digit') {
-      targets = [...reachable].filter(v => v >= 100 && v <= 999);
-    } else {
-      targets = [...reachable].filter(v => v >= 10 && v <= 999);
+    function targetsFor(values) {
+      if (targetMode === '24') return values.has(24) ? [24] : [];
+      if (targetMode === '2digit') return [...values].filter(v => v >= 10 && v <= 99);
+      if (targetMode === '3digit') return [...values].filter(v => v >= 100 && v <= 999);
+      return [...values].filter(v => v >= 10 && v <= 999);
     }
+
+    let targets = targetsFor(reachableWithoutFactorial);
+    if (targets.length === 0) targets = targetsFor(reachable);
 
     // Try picking a different target from current
     const currentTarget = typeof window !== 'undefined' && window._lastTarget ? window._lastTarget : -1;
