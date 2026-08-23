@@ -32,8 +32,17 @@ document.addEventListener('DOMContentLoaded', () => {
     timerInterval: null,
 
     isSolutionsOpen: false,
-    solutionsLocked: true
+    solutionsLocked: true,
+    solutionsSearchComplete: false,
+    solutionsSearchInProgress: false,
+    solutionsTruncated: false,
+    solutionsVisibleCount: 25,
+    solutionRevision: 0
   };
+
+  const SOLUTION_PREVIEW_LIMIT = 25;
+  const SOLUTION_ALL_LIMIT = 500;
+  const SOLUTION_PAGE_SIZE = 50;
 
   /* ==========================================================================
      DOM Elements
@@ -54,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     btnToggleScratchpad:  document.getElementById('btn-toggle-scratchpad'),
     scratchpadToggleText: document.getElementById('scratchpad-toggle-text'),
     btnCloseScratchpad:   document.getElementById('sp-btn-close'),
+    btnExpandScratchpad:  document.getElementById('sp-btn-expand'),
     btnSound:             document.getElementById('btn-sound'),
     soundStatusText:      document.getElementById('sound-status-text'),
     btnFullscreen:        document.getElementById('btn-fullscreen'),
@@ -103,6 +113,7 @@ document.addEventListener('DOMContentLoaded', () => {
     on(el.btnCheckAnswer,       'click', doCheckAnswer);
     on(el.btnToggleScratchpad,  'click', doToggleScratchpad);
     on(el.btnCloseScratchpad,   'click', closeScratchpad);
+    on(el.btnExpandScratchpad,  'click', () => scratchpad.toggleExpanded());
     on(el.btnCloseCheckModal,   'click', closeCheckModal);
     on(el.btnConfirmCheckModal, 'click', closeCheckModal);
     on(el.btnSound,             'click', doToggleSound);
@@ -183,14 +194,23 @@ document.addEventListener('DOMContentLoaded', () => {
     state.reachableTargets   = puzzle.reachableTargets || null;
     state.cachedTargetMode   = tMode;
     state.targetValue  = puzzle.target;
-    state.solutions    = puzzle.solutions;
+    setPreviewSolutions(puzzle.solutions);
   }
 
   function pickNewTargetFromDigits() {
     const { tMode } = getCountAndMode();
     const puzzle = MathSolver.generateSolvablePuzzleFromDigits(state.currentDigits, tMode);
     state.targetValue = puzzle.target;
-    state.solutions   = puzzle.solutions;
+    setPreviewSolutions(puzzle.solutions);
+  }
+
+  function setPreviewSolutions(solutions) {
+    state.solutions = solutions || [];
+    state.solutionsSearchComplete = false;
+    state.solutionsSearchInProgress = false;
+    state.solutionsTruncated = false;
+    state.solutionsVisibleCount = SOLUTION_PREVIEW_LIMIT;
+    state.solutionRevision++;
   }
 
   /* ==========================================================================
@@ -227,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (isGame24()) {
       state.targetValue = 24;
-      state.solutions = MathSolver.solve(state.currentDigits, 24, { maxSolutions: 25 });
+      setPreviewSolutions(MathSolver.solve(state.currentDigits, 24, { maxSolutions: SOLUTION_PREVIEW_LIMIT }));
       state.isPuzzleRevealed = true;
       renderDigits();
       if (el.targetBox) {
@@ -272,7 +292,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rollNewDigits();
         state.isDigitsRevealed = true;
         state.targetValue = 24;
-        state.solutions = MathSolver.solve(state.currentDigits, 24, { maxSolutions: 25 });
+        setPreviewSolutions(MathSolver.solve(state.currentDigits, 24, { maxSolutions: SOLUTION_PREVIEW_LIMIT }));
         state.isPuzzleRevealed = true;
         renderDigits();
         if (el.targetBox) {
@@ -351,7 +371,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     const list = state.solutions || [];
-    setBadge(`${list.length} คำตอบ`);
+    const badgeSuffix = state.solutionsSearchComplete && state.solutionsTruncated ? '+' : '';
+    setBadge(`${list.length}${badgeSuffix} คำตอบ`);
     if (!el.solutionsContent) return;
     el.solutionsContent.innerHTML = '';
 
@@ -363,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const frag = document.createDocumentFragment();
     const tasks = [];
 
-    list.forEach(sol => {
+    list.slice(0, state.solutionsVisibleCount).forEach(sol => {
       const chip = document.createElement('div');
       chip.className = 'solution-chip';
       const span = document.createElement('span');
@@ -376,6 +397,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
     el.solutionsContent.appendChild(frag);
 
+    const actions = document.createElement('div');
+    actions.className = 'solutions-actions';
+
+    if (state.solutionsSearchInProgress) {
+      const status = document.createElement('div');
+      status.className = 'solutions-search-status';
+      status.textContent = '⏳ กำลังค้นหาคำตอบเพิ่มเติม...';
+      actions.appendChild(status);
+    } else if (!state.solutionsSearchComplete) {
+      const searchButton = document.createElement('button');
+      searchButton.type = 'button';
+      searchButton.className = 'solutions-action-btn';
+      searchButton.textContent = `🔎 ค้นหาคำตอบทั้งหมด (สูงสุด ${SOLUTION_ALL_LIMIT})`;
+      searchButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        searchAllSolutions();
+      });
+      actions.appendChild(searchButton);
+    } else {
+      if (state.solutionsVisibleCount < list.length) {
+        const moreButton = document.createElement('button');
+        moreButton.type = 'button';
+        moreButton.className = 'solutions-action-btn';
+        moreButton.textContent = `แสดงเพิ่ม ${Math.min(SOLUTION_PAGE_SIZE, list.length - state.solutionsVisibleCount)} คำตอบ`;
+        moreButton.addEventListener('click', (event) => {
+          event.stopPropagation();
+          state.solutionsVisibleCount += SOLUTION_PAGE_SIZE;
+          renderSolutions();
+        });
+        actions.appendChild(moreButton);
+      }
+
+      const status = document.createElement('div');
+      status.className = `solutions-search-status${state.solutionsTruncated ? ' warning' : ''}`;
+      status.textContent = state.solutionsTruncated
+        ? `พบมากกว่า ${SOLUTION_ALL_LIMIT} คำตอบ — จำกัดการแสดงเพื่อป้องกันเครื่องค้าง`
+        : `ค้นหาครบ ${list.length} คำตอบที่แตกต่างกันภายใต้กติกาของ Solver`;
+      actions.appendChild(status);
+    }
+
+    el.solutionsContent.appendChild(actions);
+
     // Render KaTeX asynchronously
     setTimeout(() => {
       tasks.forEach(t => {
@@ -384,6 +447,35 @@ document.addEventListener('DOMContentLoaded', () => {
         catch(e) { t.span.textContent = t.raw; }
       });
     }, 20);
+  }
+
+  function searchAllSolutions() {
+    if (
+      state.solutionsLocked || state.solutionsSearchComplete ||
+      state.solutionsSearchInProgress || !state.currentDigits.length
+    ) return;
+
+    state.solutionsSearchInProgress = true;
+    const revision = state.solutionRevision;
+    const digits = [...state.currentDigits];
+    const target = state.targetValue;
+    renderSolutions();
+
+    // Yield once so the loading state paints before the CPU-heavy search.
+    setTimeout(() => {
+      const allSolutions = MathSolver.solve(digits, target, {
+        maxSolutions: SOLUTION_ALL_LIMIT,
+        exhaustive: true
+      });
+      if (revision !== state.solutionRevision) return;
+
+      state.solutions = allSolutions;
+      state.solutionsTruncated = Boolean(allSolutions.truncated);
+      state.solutionsSearchComplete = true;
+      state.solutionsSearchInProgress = false;
+      state.solutionsVisibleCount = SOLUTION_PAGE_SIZE;
+      renderSolutions();
+    }, 40);
   }
 
   function setBadge(text) {
@@ -404,6 +496,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el.solutionsContent) el.solutionsContent.classList.toggle('open', state.isSolutionsOpen);
     if (el.solutionsToggle) el.solutionsToggle.style.transform = state.isSolutionsOpen ? 'rotate(180deg)' : 'rotate(0deg)';
     if (el.solutionsHeader) el.solutionsHeader.setAttribute('aria-expanded', String(state.isSolutionsOpen));
+    if (state.isSolutionsOpen && !state.solutionsSearchComplete) searchAllSolutions();
   }
 
   function setSolutionsLocked(locked) {
@@ -416,7 +509,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (el.solutionsTitleText) {
       el.solutionsTitleText.textContent = locked
         ? '🔒 เฉลยจะเปิดเมื่อหมดเวลา'
-        : '💡 แสดงคำตอบที่เป็นไปได้ทั้งหมด (LaTeX Format)';
+        : '💡 คำตอบที่ค้นพบทั้งหมด (LaTeX Format)';
     }
 
     if (locked) {
@@ -549,12 +642,14 @@ document.addEventListener('DOMContentLoaded', () => {
   function doToggleScratchpad() {
     playClick();
     state.scratchpadMode = state.scratchpadMode === 'show' ? 'hide' : 'show';
+    if (state.scratchpadMode === 'hide') scratchpad.setExpanded(false);
     updateScratchpadVisibility();
   }
 
   function closeScratchpad() {
     playClick();
     state.scratchpadMode = 'hide';
+    scratchpad.setExpanded(false);
     updateScratchpadVisibility();
   }
 
@@ -577,6 +672,11 @@ document.addEventListener('DOMContentLoaded', () => {
     recognitionRevision: 0,
     recognitionAbortController: null,
     myScriptUsage: null,
+    isExpanded: false,
+    resizeSnapshot: null,
+    resizeSnapshotDpr: 1,
+    resizeObserver: null,
+    resizeFrame: null,
 
     getMyScriptProxyUrl() {
       const configured = window.SPEEDMATH_MYSCRIPT_PROXY_URL ||
@@ -897,8 +997,39 @@ document.addEventListener('DOMContentLoaded', () => {
       this.resizeCanvas();
       window.addEventListener('resize', () => this.resizeCanvas());
 
+      const wrapper = this.canvas.parentElement;
+      if (wrapper && typeof ResizeObserver !== 'undefined') {
+        this.resizeObserver = new ResizeObserver(() => {
+          if (this.resizeFrame) cancelAnimationFrame(this.resizeFrame);
+          this.resizeFrame = requestAnimationFrame(() => {
+            this.resizeFrame = null;
+            this.resizeCanvas();
+          });
+        });
+        this.resizeObserver.observe(wrapper);
+      }
+
       this.bindEvents();
       this.bindControls();
+    },
+
+    setExpanded(expanded) {
+      const container = el.scratchpadContainer;
+      if (!container) return;
+      this.isExpanded = Boolean(expanded);
+      container.classList.toggle('is-expanded', this.isExpanded);
+      if (el.btnExpandScratchpad) {
+        el.btnExpandScratchpad.classList.toggle('active', this.isExpanded);
+        el.btnExpandScratchpad.setAttribute('aria-pressed', String(this.isExpanded));
+        el.btnExpandScratchpad.textContent = this.isExpanded ? '🗗 ย่อ' : '⛶ ขยาย';
+        el.btnExpandScratchpad.title = this.isExpanded ? 'ย่อกระดาษทด' : 'ขยายกระดาษทด';
+      }
+      requestAnimationFrame(() => this.resizeCanvas());
+    },
+
+    toggleExpanded() {
+      playClick();
+      this.setExpanded(!this.isExpanded);
     },
 
     resizeCanvas() {
@@ -908,24 +1039,48 @@ document.addEventListener('DOMContentLoaded', () => {
       const rect = wrapper.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
       const dpr = window.devicePixelRatio || 1;
+      const nextWidth = Math.max(1, Math.round(rect.width * dpr));
+      const nextHeight = Math.max(1, Math.round(rect.height * dpr));
+      const oldWidth = this.canvas.width;
+      const oldHeight = this.canvas.height;
 
-      // Store canvas content before resize
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = this.canvas.width;
-      tempCanvas.height = this.canvas.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      if (tempCtx && this.canvas.width > 0 && this.canvas.height > 0) {
-        tempCtx.drawImage(this.canvas, 0, 0);
+      if (oldWidth === nextWidth && oldHeight === nextHeight) return;
+
+      // Keep a backing snapshot at the largest size reached. Shrinking the
+      // panel therefore hides the outer area instead of deleting it, so the
+      // writing reappears when the scratchpad is expanded again.
+      if (!this.resizeSnapshot || this.resizeSnapshotDpr !== dpr) {
+        this.resizeSnapshot = document.createElement('canvas');
+        this.resizeSnapshot.width = Math.max(oldWidth, nextWidth);
+        this.resizeSnapshot.height = Math.max(oldHeight, nextHeight);
+        this.resizeSnapshotDpr = dpr;
+      } else if (this.resizeSnapshot.width < nextWidth || this.resizeSnapshot.height < nextHeight) {
+        const grown = document.createElement('canvas');
+        grown.width = Math.max(this.resizeSnapshot.width, nextWidth);
+        grown.height = Math.max(this.resizeSnapshot.height, nextHeight);
+        const grownCtx = grown.getContext('2d');
+        if (grownCtx) grownCtx.drawImage(this.resizeSnapshot, 0, 0);
+        this.resizeSnapshot = grown;
       }
 
-      this.canvas.width = rect.width * dpr;
-      this.canvas.height = rect.height * dpr;
+      const snapshotCtx = this.resizeSnapshot.getContext('2d');
+      if (snapshotCtx && oldWidth > 0 && oldHeight > 0) {
+        snapshotCtx.clearRect(0, 0, oldWidth, oldHeight);
+        snapshotCtx.drawImage(this.canvas, 0, 0);
+      }
 
-      this.ctx.scale(dpr, dpr);
+      this.canvas.width = nextWidth;
+      this.canvas.height = nextHeight;
+      this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-      // Restore drawing
-      if (tempCanvas.width > 0 && tempCanvas.height > 0) {
-        this.ctx.drawImage(tempCanvas, 0, 0, tempCanvas.width / dpr, tempCanvas.height / dpr);
+      if (this.resizeSnapshot.width > 0 && this.resizeSnapshot.height > 0) {
+        this.ctx.drawImage(
+          this.resizeSnapshot,
+          0,
+          0,
+          this.resizeSnapshot.width / dpr,
+          this.resizeSnapshot.height / dpr
+        );
       }
     },
 
@@ -1007,6 +1162,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!this.canvas || !this.ctx) return;
       const dpr = window.devicePixelRatio || 1;
       this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+      if (this.resizeSnapshot) {
+        const snapshotCtx = this.resizeSnapshot.getContext('2d');
+        if (snapshotCtx) snapshotCtx.clearRect(0, 0, this.resizeSnapshot.width, this.resizeSnapshot.height);
+      }
       if (this.recognitionAbortController) {
         this.recognitionAbortController.abort();
         this.recognitionAbortController = null;

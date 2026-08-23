@@ -39,9 +39,11 @@ const MathSolver = {
   },
 
   solve(digits, target, opts = {}) {
-    const max = opts.maxSolutions || 25;
+    const exhaustive = opts.exhaustive === true;
+    const max = opts.maxSolutions || (exhaustive ? 500 : 25);
     const candidates = new Map();
-    const passLimit = Math.max(60, max * 4);
+    const passLimit = exhaustive ? Math.max(500, max * 2) : Math.max(60, max * 4);
+    let searchLimitReached = false;
 
     // Search separate strategy families. A single DFS used to stop after the
     // first 25 hits, and factorial branches reached that limit before ordinary
@@ -49,7 +51,9 @@ const MathSolver = {
     function search(config, limit) {
       const found = new Map();
       const stateVisits = new Map();
-      const stateVisitCap = digits.length >= 5 ? 12 : 24;
+      const stateVisitCap = exhaustive
+        ? (digits.length >= 5 ? 48 : 96)
+        : (digits.length >= 5 ? 12 : 24);
 
       function unary(node) {
         const out = [node];
@@ -161,6 +165,7 @@ const MathSolver = {
       }
 
       rec(digits.map(d => ({ expr: `${d}`, val: d, literal: true })));
+      if (found.size >= limit) searchLimitReached = true;
       for (const [raw, latex] of found) {
         if (!candidates.has(raw)) candidates.set(raw, { raw, latex });
       }
@@ -191,9 +196,9 @@ const MathSolver = {
     }
     for (const bucket of Object.values(buckets)) bucket.sort((a, b) => quality(a) - quality(b));
 
-    // Round-robin makes different methods visible near the top. Factorial is
-    // capped; returning fewer useful answers is better than a wall of cosmetic
-    // factorial variations.
+    // Round-robin makes different methods visible near the top. Preview mode
+    // caps factorial variants; exhaustive mode keeps them after the other
+    // strategy families have had a fair chance to appear.
     const selected = [];
     const factorialCap = Math.max(3, Math.floor(max * 0.25));
     const order = ['basic', 'sigma', 'advanced', 'factorial'];
@@ -202,7 +207,7 @@ const MathSolver = {
       let added = false;
       for (const name of order) {
         if (selected.length >= max) break;
-        if (name === 'factorial' && factorialCount >= factorialCap) continue;
+        if (!exhaustive && name === 'factorial' && factorialCount >= factorialCap) continue;
         const next = buckets[name].shift();
         if (!next) continue;
         selected.push(next);
@@ -211,6 +216,8 @@ const MathSolver = {
       }
       if (!added) break;
     }
+    selected.truncated = exhaustive && (searchLimitReached || candidates.size > max);
+    selected.totalFound = candidates.size;
     return selected;
   },
 

@@ -584,6 +584,40 @@ body.is-fullscreen {
   gap: 0.6rem;
 }
 
+.solutions-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  padding-top: 0.35rem;
+}
+
+.solutions-action-btn {
+  width: min(100%, 360px);
+  padding: 0.65rem 1rem;
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  border-radius: var(--radius-sm);
+  color: #081018;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  font-family: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.solutions-action-btn:hover {
+  filter: brightness(1.08);
+}
+
+.solutions-search-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  text-align: center;
+}
+
+.solutions-search-status.warning {
+  color: #fbbf24;
+}
+
 .solution-chip {
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -719,7 +753,11 @@ body.is-fullscreen {
   left: 1.5rem;
   transform: translateY(-50%);
   width: 380px;
+  height: min(540px, calc(100vh - 3rem));
+  min-width: 340px;
+  min-height: 420px;
   max-width: calc(100vw - 3rem);
+  max-height: calc(100vh - 2rem);
   background: rgba(18, 23, 32, 0.92);
   backdrop-filter: blur(16px);
   border: 1.5px solid rgba(0, 242, 254, 0.35);
@@ -728,8 +766,25 @@ body.is-fullscreen {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  resize: both;
   z-index: 95;
   transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.scratchpad-container.is-expanded {
+  top: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  left: 0.75rem;
+  width: auto !important;
+  height: auto !important;
+  min-width: 0;
+  min-height: 0;
+  max-width: none;
+  max-height: none;
+  transform: none;
+  resize: none;
+  border-radius: var(--radius-md);
 }
 
 .scratchpad-header {
@@ -809,10 +864,18 @@ body.is-fullscreen {
 .scratchpad-canvas-wrapper {
   position: relative;
   width: 100%;
-  height: 220px;
+  height: auto;
+  min-height: 220px;
+  flex: 1 1 auto;
   background: radial-gradient(circle, rgba(20, 26, 38, 0.95) 0%, rgba(10, 14, 22, 0.98) 100%);
   cursor: crosshair;
   touch-action: none;
+}
+
+.sp-expand-btn.active {
+  color: #061018;
+  background: var(--accent-cyan);
+  border-color: var(--accent-cyan);
 }
 
 #scratchpad-canvas {
@@ -1096,4 +1159,34 @@ body.is-fullscreen {
   font-family: var(--font-mono);
   font-weight: 700;
   color: #ffffff;
+}
+
+@media (max-width: 760px) {
+  .scratchpad-container {
+    left: 0.4rem;
+    width: calc(100vw - 0.8rem);
+    height: min(620px, calc(100dvh - 0.8rem));
+    min-width: 0;
+    min-height: 360px;
+    max-width: none;
+    max-height: calc(100dvh - 0.8rem);
+    resize: none;
+  }
+
+  .scratchpad-container.is-expanded {
+    inset: 0.25rem;
+  }
+
+  .scratchpad-header {
+    padding-left: 0.6rem;
+    padding-right: 3.25rem;
+  }
+
+  .scratchpad-tools {
+    gap: 0.3rem;
+  }
+
+  .scratchpad-canvas-wrapper {
+    min-height: 180px;
+  }
 }

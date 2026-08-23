@@ -25,3 +25,16 @@ for (const solution of solutions) {
 }
 
 console.log(`solver diversity test passed (${solutions.length} valid solutions)`);
+
+const exhaustive = MathSolver.solve(digits, target, { maxSolutions: 500, exhaustive: true });
+assert(exhaustive.length > solutions.length, 'exhaustive search should find more than the preview');
+assert(exhaustive.length <= 500, 'exhaustive search must honor the browser safety limit');
+assert.strictEqual(typeof exhaustive.truncated, 'boolean', 'exhaustive search should report truncation');
+
+for (const solution of exhaustive) {
+  const evaluated = MathEngine.evaluate(solution.raw);
+  assert(evaluated.success && Math.abs(evaluated.result - target) < 1e-7, `exhaustive solution must be valid: ${solution.raw}`);
+  assert(MathEngine.validateDigitUsage(solution.raw, digits).isValid, `exhaustive solution must use the exact digits: ${solution.raw}`);
+}
+
+console.log(`exhaustive solver test passed (${exhaustive.length}${exhaustive.truncated ? '+' : ''} valid solutions)`);
