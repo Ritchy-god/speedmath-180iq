@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
       </div>
 
       <div id="ninja-screen-game" class="ninja-screen ninja-game">
+        <button id="ninja-exit" class="ninja-exit-btn" type="button" aria-label="ออกจากเกม Math Ninja" title="ออกจากเกม">✕</button>
         <div class="ninja-hud">
           <div class="ninja-stat">ข้อ<strong id="ninja-progress">1 / 10</strong></div>
           <div class="ninja-stat">คะแนน<strong id="ninja-score">0</strong></div>
@@ -152,6 +153,7 @@ document.addEventListener('DOMContentLoaded', () => {
     operationInputs: [...panel.querySelectorAll('.ninja-op-check input')],
     settingsError: document.getElementById('ninja-settings-error'),
     start: document.getElementById('ninja-start'),
+    exit: document.getElementById('ninja-exit'),
     progress: document.getElementById('ninja-progress'),
     score: document.getElementById('ninja-score'),
     streak: document.getElementById('ninja-streak'),
@@ -238,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     ui.replay.addEventListener('click', startGame);
     ui.backSettings.addEventListener('click', showSetup);
+    ui.exit.addEventListener('click', exitGame);
 
     // Capture before app.js opens the classic settings modal.
     if (settingsButton) {
@@ -256,6 +259,12 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('resize', resizeTrailCanvas);
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) state.frameAt = 0;
+    });
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && state.activeTab === 'ninja' && state.running) {
+        event.preventDefault();
+        exitGame();
+      }
     });
   }
 
@@ -302,6 +311,17 @@ document.addEventListener('DOMContentLoaded', () => {
     showScreen('setup');
   }
 
+  function exitGame() {
+    safeSound('playClick');
+    showSetup();
+  }
+
+  function setPlayingFullscreen(active) {
+    const shell = panel.querySelector('.ninja-shell');
+    if (shell) shell.classList.toggle('is-playing-fullscreen', active);
+    document.body.classList.toggle('ninja-mode-playing', active);
+  }
+
   function startGame() {
     stopGame();
     state.running = true;
@@ -312,6 +332,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.streak = 0;
     state.bestStreak = 0;
     showScreen('game');
+    setPlayingFullscreen(true);
     updateHud();
     requestAnimationFrame(() => {
       resizeTrailCanvas();
@@ -323,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function stopGame() {
+    setPlayingFullscreen(false);
     state.running = false;
     state.questionLocked = true;
     if (state.animationFrame) cancelAnimationFrame(state.animationFrame);

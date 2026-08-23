@@ -218,6 +218,65 @@
   min-height: 620px;
 }
 
+body.ninja-mode-playing {
+  overflow: hidden;
+}
+
+.ninja-shell.is-playing-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  width: 100vw;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: #0b111b;
+}
+
+.ninja-shell.is-playing-fullscreen .ninja-game {
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+}
+
+.ninja-shell.is-playing-fullscreen .ninja-hud {
+  padding-right: max(4.5rem, calc(env(safe-area-inset-right) + 4rem));
+}
+
+.ninja-exit-btn {
+  position: absolute;
+  z-index: 12;
+  top: max(0.7rem, env(safe-area-inset-top));
+  right: max(0.7rem, env(safe-area-inset-right));
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid rgba(255, 86, 112, 0.55);
+  border-radius: 13px;
+  color: #ff6b7f;
+  background: rgba(77, 22, 32, 0.78);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+  font: 800 1.3rem/1 sans-serif;
+  cursor: pointer;
+  transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.ninja-exit-btn:hover,
+.ninja-exit-btn:focus-visible {
+  transform: scale(1.06);
+  border-color: #ff6b7f;
+  outline: 2px solid rgba(255, 107, 127, 0.24);
+  background: rgba(116, 29, 45, 0.9);
+}
+
+.ninja-exit-btn:active {
+  transform: scale(0.94);
+}
+
 .ninja-hud {
   position: relative;
   z-index: 6;
@@ -446,6 +505,17 @@
   .ninja-shell,
   .ninja-game {
     min-height: calc(100dvh - 190px);
+  }
+
+  .ninja-shell.is-playing-fullscreen,
+  .ninja-shell.is-playing-fullscreen .ninja-game {
+    height: 100dvh;
+    min-height: 100dvh;
+  }
+
+  .ninja-exit-btn {
+    width: 40px;
+    height: 40px;
   }
 
   .ninja-settings-grid {
