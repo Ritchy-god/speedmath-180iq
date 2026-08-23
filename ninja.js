@@ -13,7 +13,25 @@ document.addEventListener('DOMContentLoaded', () => {
   if (!panel || !classicPanel || !ninjaTab || !classicTab) return;
 
   const STORAGE_KEY = 'speedmath-math-ninja-settings-v1';
+  const FANCY_UNLOCK_KEY = 'speedmath-math-ninja-fancy-unlocked';
+  const FANCY_ACCESS_CODE = '24082026';
   const ALLOWED_OPERATIONS = ['add', 'subtract', 'multiply', 'divide', 'power', 'sqrt'];
+  const FANCY_HEADS = [
+    { file: 'face-01.jpg', x: 54, y: 27 },
+    { file: 'face-02.jpg', x: 63, y: 23 },
+    { file: 'face-03.jpg', x: 53, y: 23 },
+    { file: 'face-04.jpg', x: 59, y: 28 },
+    { file: 'face-05.jpg', x: 55, y: 22 },
+    { file: 'face-06.jpg', x: 52, y: 29 },
+    { file: 'face-07.jpg', x: 55, y: 23 },
+    { file: 'face-08.jpg', x: 47, y: 25 },
+    { file: 'face-09.jpg', x: 49, y: 26.2 },
+    { file: 'face-10.jpg', x: 53, y: 24.6 },
+    { file: 'face-11.jpg', x: 51, y: 21 },
+    { file: 'face-12.jpg', x: 51.5, y: 26 },
+    { file: 'face-13.jpg', x: 49, y: 30 },
+    { file: 'face-14.jpg', x: 58, y: 26.6 }
+  ].map(face => ({ ...face, src: `assets/ninja-faces/${face.file}` }));
   const SPEEDS = {
     slow:   { multiplier: 0.72, questionMs: 12000 },
     normal: { multiplier: 1,    questionMs: 10000 },
@@ -43,6 +61,9 @@ document.addEventListener('DOMContentLoaded', () => {
     activePointerId: null,
     lastPointer: null,
     trail: [],
+    fancyMode: false,
+    fancyCodeUnlocked: loadFancyCodeUnlock(),
+    returnSettings: null,
     classicTitle: brandTitle ? brandTitle.textContent : 'คิดเลขเร็ว 180 IQ'
   };
 
@@ -103,6 +124,20 @@ document.addEventListener('DOMContentLoaded', () => {
           </fieldset>
         </div>
 
+        <section class="ninja-fancy-access-card" aria-labelledby="ninja-fancy-access-title">
+          <div class="ninja-fancy-access-copy">
+            <strong id="ninja-fancy-access-title">🎭 โหมดแฟนซี</strong>
+            <span id="ninja-fancy-access-status">ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที</span>
+          </div>
+          <form id="ninja-fancy-code-form" class="ninja-fancy-code-form">
+            <label class="sr-only" for="ninja-fancy-code">รหัสปลดล็อกโหมดแฟนซี</label>
+            <input id="ninja-fancy-code" class="ninja-fancy-code-input" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="รหัสผ่าน 8 หลัก">
+            <button class="ninja-fancy-code-btn" type="submit">🔓 ปลดล็อกและเล่น</button>
+          </form>
+          <button id="ninja-fancy-quick-start" class="ninja-fancy-start-btn" type="button" hidden>✨ เล่นโหมดแฟนซีทันที</button>
+          <div id="ninja-fancy-code-error" class="ninja-fancy-code-error" role="alert"></div>
+        </section>
+
         <div id="ninja-settings-error" class="ninja-settings-error" role="alert"></div>
         <button id="ninja-start" class="ninja-start-btn" type="button">🥷 เริ่มภารกิจ</button>
       </div>
@@ -115,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
           <div class="ninja-stat">ต่อเนื่อง<strong id="ninja-streak">0</strong></div>
         </div>
         <div class="ninja-question-wrap">
+          <div id="ninja-fancy-badge" class="ninja-fancy-badge" hidden>✨ FANCY STAGE ✨</div>
           <div id="ninja-question" class="ninja-question">8 × 7 = ?</div>
           <div class="ninja-instruction">ใช้นิ้ว ปากกา หรือเมาส์ ปัดผ่านลูกบอลคำตอบ</div>
           <div class="ninja-time-track"><div id="ninja-time-bar" class="ninja-time-bar"></div></div>
@@ -128,13 +164,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
       <div id="ninja-screen-result" class="ninja-screen ninja-result">
         <div id="ninja-result-medal" class="ninja-result-medal">🏆</div>
-        <h2>จบภารกิจ!</h2>
+        <h2 id="ninja-result-title">จบภารกิจ!</h2>
         <div id="ninja-result-score" class="ninja-result-score">0</div>
         <div class="ninja-result-grid">
           <div class="ninja-result-item">ถูก<strong id="ninja-result-correct">0</strong></div>
           <div class="ninja-result-item">พลาด<strong id="ninja-result-wrong">0</strong></div>
           <div class="ninja-result-item">แม่นยำ<strong id="ninja-result-accuracy">0%</strong></div>
         </div>
+        <section id="ninja-fancy-unlock" class="ninja-fancy-unlock" hidden>
+          <div class="ninja-fancy-sparkles" aria-hidden="true">✨ 🎉 ✨</div>
+          <h3>ปลดล็อกด่านแฟนซี!</h3>
+          <p>คุณผ่าน เร็วมาก · 8 ลูก · 10 ข้อ · ครบทุกการดำเนินการ ด้วยความแม่นยำ 100%</p>
+          <p class="ninja-fancy-question">ต้องการเล่นด่านแฟนซีต่ออีก 5 ข้อหรือไม่?</p>
+          <div class="ninja-fancy-actions">
+            <button id="ninja-fancy-start" class="ninja-fancy-start-btn" type="button">🎭 เล่นโหมดแฟนซี</button>
+            <button id="ninja-fancy-decline" class="ninja-secondary-btn" type="button">ไว้ครั้งหน้า</button>
+          </div>
+        </section>
         <div class="ninja-result-actions">
           <button id="ninja-replay" class="ninja-primary-btn" type="button">เล่นอีกครั้ง</button>
           <button id="ninja-back-settings" class="ninja-secondary-btn" type="button">ปรับการตั้งค่า</button>
@@ -152,11 +198,17 @@ document.addEventListener('DOMContentLoaded', () => {
     questionCount: document.getElementById('ninja-question-count'),
     operationInputs: [...panel.querySelectorAll('.ninja-op-check input')],
     settingsError: document.getElementById('ninja-settings-error'),
+    fancyAccessStatus: document.getElementById('ninja-fancy-access-status'),
+    fancyCodeForm: document.getElementById('ninja-fancy-code-form'),
+    fancyCode: document.getElementById('ninja-fancy-code'),
+    fancyCodeError: document.getElementById('ninja-fancy-code-error'),
+    fancyQuickStart: document.getElementById('ninja-fancy-quick-start'),
     start: document.getElementById('ninja-start'),
     exit: document.getElementById('ninja-exit'),
     progress: document.getElementById('ninja-progress'),
     score: document.getElementById('ninja-score'),
     streak: document.getElementById('ninja-streak'),
+    fancyBadge: document.getElementById('ninja-fancy-badge'),
     question: document.getElementById('ninja-question'),
     timeBar: document.getElementById('ninja-time-bar'),
     arena: document.getElementById('ninja-arena'),
@@ -164,16 +216,21 @@ document.addEventListener('DOMContentLoaded', () => {
     trailCanvas: document.getElementById('ninja-trail'),
     feedback: document.getElementById('ninja-feedback'),
     resultMedal: document.getElementById('ninja-result-medal'),
+    resultTitle: document.getElementById('ninja-result-title'),
     resultScore: document.getElementById('ninja-result-score'),
     resultCorrect: document.getElementById('ninja-result-correct'),
     resultWrong: document.getElementById('ninja-result-wrong'),
     resultAccuracy: document.getElementById('ninja-result-accuracy'),
+    fancyUnlock: document.getElementById('ninja-fancy-unlock'),
+    fancyStart: document.getElementById('ninja-fancy-start'),
+    fancyDecline: document.getElementById('ninja-fancy-decline'),
     replay: document.getElementById('ninja-replay'),
     backSettings: document.getElementById('ninja-back-settings')
   };
 
   applySettingsToForm();
   bindEvents();
+  refreshFancyAccess();
 
   function loadSettings() {
     const fallback = {
@@ -196,6 +253,14 @@ document.addEventListener('DOMContentLoaded', () => {
       };
     } catch (_) {
       return fallback;
+    }
+  }
+
+  function loadFancyCodeUnlock() {
+    try {
+      return sessionStorage.getItem(FANCY_UNLOCK_KEY) === '1';
+    } catch (_) {
+      return false;
     }
   }
 
@@ -236,11 +301,34 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!settings) return;
       state.settings = settings;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-      startGame();
+      startGame(false);
     });
-    ui.replay.addEventListener('click', startGame);
+    ui.replay.addEventListener('click', () => startGame(state.fancyMode));
     ui.backSettings.addEventListener('click', showSetup);
     ui.exit.addEventListener('click', exitGame);
+    ui.fancyStart.addEventListener('click', startFancyGame);
+    ui.fancyDecline.addEventListener('click', () => {
+      ui.fancyUnlock.hidden = true;
+    });
+    ui.fancyQuickStart.addEventListener('click', startFancyGame);
+    ui.fancyCodeForm.addEventListener('submit', event => {
+      event.preventDefault();
+      if (ui.fancyCode.value.trim() !== FANCY_ACCESS_CODE) {
+        ui.fancyCodeError.textContent = 'รหัสไม่ถูกต้อง กรุณาลองใหม่';
+        ui.fancyCode.select();
+        return;
+      }
+      state.fancyCodeUnlocked = true;
+      try {
+        sessionStorage.setItem(FANCY_UNLOCK_KEY, '1');
+      } catch (_) {
+        // The mode still unlocks for this page even when storage is unavailable.
+      }
+      ui.fancyCode.value = '';
+      ui.fancyCodeError.textContent = '';
+      refreshFancyAccess();
+      startFancyGame();
+    });
 
     // Capture before app.js opens the classic settings modal.
     if (settingsButton) {
@@ -306,8 +394,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function showSetup() {
     stopGame();
+    if (state.returnSettings) {
+      state.settings = state.returnSettings;
+      state.returnSettings = null;
+    }
+    state.fancyMode = false;
     applySettingsToForm();
     ui.settingsError.textContent = '';
+    ui.fancyCodeError.textContent = '';
+    refreshFancyAccess();
+    ui.fancyUnlock.hidden = true;
     showScreen('setup');
   }
 
@@ -322,8 +418,37 @@ document.addEventListener('DOMContentLoaded', () => {
     document.body.classList.toggle('ninja-mode-playing', active);
   }
 
-  function startGame() {
+  function setFancyVisual(active) {
+    const shell = panel.querySelector('.ninja-shell');
+    if (shell) shell.classList.toggle('is-fancy-mode', active);
+    ui.fancyBadge.hidden = !active;
+  }
+
+  function refreshFancyAccess() {
+    ui.fancyCodeForm.hidden = state.fancyCodeUnlocked;
+    ui.fancyQuickStart.hidden = !state.fancyCodeUnlocked;
+    ui.fancyAccessStatus.textContent = state.fancyCodeUnlocked
+      ? 'ปลดล็อกแล้ว — เข้าเล่นด่านแฟนซี 5 ข้อได้ทันที'
+      : 'ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที';
+  }
+
+  function startFancyGame() {
+    state.returnSettings = {
+      ...state.settings,
+      operations: [...state.settings.operations]
+    };
+    state.settings = {
+      speed: 'ninja',
+      ballCount: 8,
+      questionCount: 5,
+      operations: [...ALLOWED_OPERATIONS]
+    };
+    startGame(true);
+  }
+
+  function startGame(fancyMode = false) {
     stopGame();
+    state.fancyMode = fancyMode === true;
     state.running = true;
     state.questionIndex = 0;
     state.score = 0;
@@ -333,6 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
     state.bestStreak = 0;
     showScreen('game');
     setPlayingFullscreen(true);
+    setFancyVisual(state.fancyMode);
     updateHud();
     requestAnimationFrame(() => {
       resizeTrailCanvas();
@@ -345,6 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function stopGame() {
     setPlayingFullscreen(false);
+    setFancyVisual(false);
     state.running = false;
     state.questionLocked = true;
     if (state.animationFrame) cancelAnimationFrame(state.animationFrame);
@@ -441,8 +568,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const rect = ui.arena.getBoundingClientRect();
     const width = Math.max(320, rect.width);
     const height = Math.max(330, rect.height);
-    const radius = width <= 760 ? 33 : 38;
+    const radius = state.fancyMode ? (width <= 760 ? 56 : 64) : (width <= 760 ? 33 : 38);
     const answers = makeAnswers(answer, state.settings.ballCount);
+    const fancyHeads = state.fancyMode ? shuffle([...FANCY_HEADS]).slice(0, answers.length) : [];
     const columns = Math.min(4, answers.length);
     const rows = Math.ceil(answers.length / columns);
     const speed = SPEEDS[state.settings.speed].multiplier;
@@ -472,13 +600,63 @@ document.addEventListener('DOMContentLoaded', () => {
         sliced: false,
         element
       };
-      element.className = 'ninja-ball';
-      element.textContent = String(value);
+      element.className = `ninja-ball${state.fancyMode ? ' fancy-character' : ''}`;
+      if (state.fancyMode) {
+        element.style.setProperty('--limb-delay', `${-index * 0.075}s`);
+        const limbNames = ['left-arm', 'right-arm', 'left-leg', 'right-leg'];
+        const limbs = limbNames.map(name => {
+          const limb = document.createElement('span');
+          limb.className = `ninja-limb ninja-${name}`;
+          limb.setAttribute('aria-hidden', 'true');
+          return limb;
+        });
+        const headFrame = document.createElement('span');
+        headFrame.className = 'ninja-face-frame';
+        const head = document.createElement('img');
+        head.className = 'ninja-face-head';
+        head.src = fancyHeads[index].src;
+        head.alt = '';
+        head.draggable = false;
+        centerFancyHead(head, fancyHeads[index]);
+        headFrame.appendChild(head);
+        const answerLabel = document.createElement('span');
+        answerLabel.className = 'ninja-ball-answer';
+        answerLabel.textContent = String(value);
+        element.append(...limbs, headFrame, answerLabel);
+      } else {
+        element.textContent = String(value);
+      }
       element.dataset.ballId = String(ball.id);
       ui.ballLayer.appendChild(element);
       renderBall(ball);
       return ball;
     });
+  }
+
+  function centerFancyHead(image, face) {
+    const applyFocalPoint = () => {
+      const imageRatio = image.naturalWidth / image.naturalHeight || 1;
+      let visibleX = face.x;
+      let visibleY = face.y;
+
+      // The frame is square and object-fit: cover crops the long side. Convert
+      // the focal point from source-image percentages into visible-frame space
+      // before zooming, so every face lands at the exact centre of the circle.
+      if (imageRatio > 1) {
+        visibleX = 50 + ((face.x - 50) * imageRatio);
+      } else if (imageRatio < 1) {
+        visibleY = 50 + ((face.y - 50) / imageRatio);
+      }
+
+      image.style.setProperty('--face-shift-x', `${50 - visibleX}%`);
+      image.style.setProperty('--face-shift-y', `${50 - visibleY}%`);
+    };
+
+    if (image.complete && image.naturalWidth) {
+      applyFocalPoint();
+    } else {
+      image.addEventListener('load', applyFocalPoint, { once: true });
+    }
   }
 
   function animate(timestamp) {
@@ -629,12 +807,22 @@ document.addEventListener('DOMContentLoaded', () => {
   function finishGame() {
     const totalAttempts = state.correct + state.wrong;
     const accuracy = totalAttempts ? Math.round((state.correct / totalAttempts) * 100) : 0;
+    const finishedFancyMode = state.fancyMode;
+    const fancyUnlocked = !finishedFancyMode &&
+      state.settings.speed === 'ninja' &&
+      state.settings.ballCount === 8 &&
+      state.settings.questionCount === 10 &&
+      state.settings.operations.length === ALLOWED_OPERATIONS.length &&
+      ALLOWED_OPERATIONS.every(operation => state.settings.operations.includes(operation)) &&
+      accuracy === 100;
     stopGame();
     ui.resultScore.textContent = state.score.toLocaleString('th-TH');
     ui.resultCorrect.textContent = String(state.correct);
     ui.resultWrong.textContent = String(state.wrong);
     ui.resultAccuracy.textContent = `${accuracy}%`;
     ui.resultMedal.textContent = accuracy >= 90 ? '🏆' : accuracy >= 70 ? '🥇' : accuracy >= 50 ? '🥈' : '🥷';
+    ui.resultTitle.textContent = finishedFancyMode ? 'จบด่านแฟนซี!' : 'จบภารกิจ!';
+    ui.fancyUnlock.hidden = !fancyUnlocked;
     showScreen('result');
   }
 

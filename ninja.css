@@ -213,6 +213,79 @@
   font-weight: 700;
 }
 
+.ninja-fancy-access-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.8rem 1rem;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(255, 215, 96, 0.35);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 10% 20%, rgba(255, 87, 181, 0.14), transparent 38%),
+    linear-gradient(135deg, rgba(99, 57, 175, 0.18), rgba(0, 211, 211, 0.1));
+}
+
+.ninja-fancy-access-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 210px;
+  color: #fff;
+}
+
+.ninja-fancy-access-copy strong {
+  color: #fff2a2;
+}
+
+.ninja-fancy-access-copy span {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.ninja-fancy-code-form {
+  display: flex;
+  flex: 1;
+  min-width: min(100%, 320px);
+  gap: 0.55rem;
+}
+
+.ninja-fancy-code-input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.68rem 0.8rem;
+  border: 1px solid rgba(255, 215, 96, 0.34);
+  border-radius: 11px;
+  color: #fff;
+  outline: none;
+  background: rgba(8, 13, 24, 0.76);
+  font: 800 0.92rem var(--font-mono);
+}
+
+.ninja-fancy-code-input:focus {
+  border-color: #ffe05d;
+  box-shadow: 0 0 0 3px rgba(255, 224, 93, 0.12);
+}
+
+.ninja-fancy-code-btn {
+  border: 0;
+  border-radius: 11px;
+  padding: 0.68rem 0.9rem;
+  color: #170d22;
+  background: linear-gradient(135deg, #ffe45e, #ff75c8);
+  font: 900 0.86rem var(--font-main);
+  cursor: pointer;
+}
+
+.ninja-fancy-code-error {
+  flex: 0 0 100%;
+  min-height: 1.1em;
+  color: #ff8ca6;
+  text-align: right;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .ninja-game {
   position: relative;
   min-height: 620px;
@@ -308,6 +381,20 @@ body.ninja-mode-playing {
   background: linear-gradient(180deg, rgba(17, 24, 37, 0.95), rgba(17, 24, 37, 0.6));
 }
 
+.ninja-fancy-badge {
+  width: fit-content;
+  margin: 0 auto 0.2rem;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid rgba(255, 215, 64, 0.55);
+  border-radius: 99px;
+  color: #fff4a6;
+  background: linear-gradient(135deg, rgba(255, 77, 166, 0.35), rgba(119, 70, 255, 0.35));
+  box-shadow: 0 0 24px rgba(255, 77, 166, 0.26);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+}
+
 .ninja-question {
   color: #fff;
   font: 900 clamp(1.8rem, 5vw, 3.5rem) var(--font-mono);
@@ -393,6 +480,142 @@ body.ninja-mode-playing {
 
 .ninja-ball:nth-of-type(3n + 2) {
   background: radial-gradient(circle at 32% 25%, rgba(255, 255, 255, 0.72), transparent 14%), linear-gradient(145deg, #9c6bff, #5f24c4 72%);
+}
+
+.ninja-shell.is-fancy-mode {
+  background:
+    radial-gradient(circle at 18% 22%, rgba(255, 70, 173, 0.2), transparent 34%),
+    radial-gradient(circle at 82% 70%, rgba(131, 86, 255, 0.22), transparent 38%),
+    #0b111b;
+}
+
+.ninja-shell.is-fancy-mode .ninja-arena {
+  background:
+    radial-gradient(circle at 14% 22%, rgba(255, 236, 128, 0.11) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 38%, rgba(255, 105, 210, 0.12) 0 2px, transparent 3px),
+    linear-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+  background-size: 92px 92px, 118px 118px, 42px 42px, 42px 42px;
+}
+
+.ninja-ball.fancy-character {
+  overflow: visible;
+  border-color: rgba(255, 235, 139, 0.95);
+  background:
+    radial-gradient(circle at 34% 25%, rgba(255, 255, 255, 0.8), transparent 13%),
+    linear-gradient(145deg, #ff5fb7, #7939dd 75%);
+  box-shadow:
+    inset -10px -12px 18px rgba(0, 0, 0, 0.22),
+    0 0 0 4px rgba(255, 221, 111, 0.14),
+    0 14px 28px rgba(0, 0, 0, 0.38);
+}
+
+.ninja-limb {
+  position: absolute;
+  z-index: -1;
+  display: block;
+  width: 15px;
+  border-radius: 99px;
+  pointer-events: none;
+}
+
+.ninja-left-arm,
+.ninja-right-arm {
+  top: 27px;
+  height: 46px;
+  transform-origin: 50% 7px;
+  background: linear-gradient(180deg, #ff6aa6, #ffad48);
+}
+
+.ninja-left-arm {
+  left: -7px;
+  animation: ninja-left-arm-wiggle 0.48s ease-in-out var(--limb-delay, 0s) infinite alternate;
+}
+
+.ninja-right-arm {
+  right: -7px;
+  background: linear-gradient(180deg, #5bdcff, #7650df);
+  animation: ninja-right-arm-wiggle 0.48s ease-in-out var(--limb-delay, 0s) infinite alternate;
+}
+
+.ninja-left-leg,
+.ninja-right-leg {
+  bottom: -28px;
+  height: 42px;
+  transform-origin: 50% 6px;
+  background: linear-gradient(180deg, #8351df, #5e2ebd);
+}
+
+.ninja-left-leg {
+  left: 14px;
+  animation: ninja-left-leg-wiggle 0.42s ease-in-out var(--limb-delay, 0s) infinite alternate;
+}
+
+.ninja-right-leg {
+  right: 14px;
+  animation: ninja-right-leg-wiggle 0.42s ease-in-out var(--limb-delay, 0s) infinite alternate;
+}
+
+@keyframes ninja-left-arm-wiggle {
+  from { transform: rotate(48deg); }
+  to { transform: rotate(78deg); }
+}
+
+@keyframes ninja-right-arm-wiggle {
+  from { transform: rotate(-78deg); }
+  to { transform: rotate(-48deg); }
+}
+
+@keyframes ninja-left-leg-wiggle {
+  from { transform: rotate(-17deg); }
+  to { transform: rotate(13deg); }
+}
+
+@keyframes ninja-right-leg-wiggle {
+  from { transform: rotate(17deg); }
+  to { transform: rotate(-13deg); }
+}
+
+.ninja-face-frame {
+  position: absolute;
+  z-index: 2;
+  top: -31px;
+  left: 50%;
+  width: 56px;
+  height: 56px;
+  overflow: hidden;
+  transform: translateX(-50%);
+  border: 3px solid #fff2a8;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.36), 0 0 18px rgba(255, 220, 96, 0.35);
+  pointer-events: none;
+}
+
+.ninja-face-head {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(3.1) translate(var(--face-shift-x, -7%), var(--face-shift-y, 27%));
+  transform-origin: 50% 50%;
+}
+
+.ninja-ball-answer {
+  position: relative;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  min-width: 44px;
+  min-height: 31px;
+  margin-top: 20px;
+  padding: 0 0.3rem;
+  border: 2px solid rgba(255, 255, 255, 0.75);
+  border-radius: 10px;
+  color: #fff;
+  background: rgba(10, 15, 30, 0.76);
+  font: 900 1rem var(--font-mono);
+  text-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
 }
 
 .ninja-ball.hit-correct {
@@ -491,6 +714,57 @@ body.ninja-mode-playing {
   flex-wrap: wrap;
 }
 
+.ninja-fancy-unlock {
+  max-width: 700px;
+  margin: 1.2rem auto;
+  padding: 1.15rem;
+  border: 1px solid rgba(255, 215, 96, 0.48);
+  border-radius: 18px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 15% 20%, rgba(255, 80, 177, 0.22), transparent 38%),
+    linear-gradient(135deg, rgba(95, 47, 176, 0.35), rgba(13, 190, 193, 0.2));
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.28), 0 0 28px rgba(255, 89, 186, 0.12);
+}
+
+.ninja-fancy-sparkles {
+  font-size: 1.5rem;
+}
+
+.ninja-fancy-unlock h3 {
+  margin: 0.25rem 0;
+  color: #fff3a4;
+  font-size: 1.5rem;
+}
+
+.ninja-fancy-unlock p {
+  margin: 0.35rem auto;
+  color: #dce7f5;
+}
+
+.ninja-fancy-question {
+  font-weight: 900;
+}
+
+.ninja-fancy-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.65rem;
+  margin-top: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.ninja-fancy-start-btn {
+  border: 0;
+  border-radius: 14px;
+  padding: 0.85rem 1.35rem;
+  color: #15091f;
+  background: linear-gradient(135deg, #ffe45e, #ff6cc9 52%, #70dcff);
+  box-shadow: 0 8px 24px rgba(255, 84, 185, 0.28);
+  font: 900 1rem var(--font-main);
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .game-tabs {
     width: 100%;
@@ -522,6 +796,16 @@ body.ninja-mode-playing {
     grid-template-columns: 1fr;
   }
 
+  .ninja-fancy-access-card,
+  .ninja-fancy-code-form {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ninja-fancy-code-error {
+    text-align: left;
+  }
+
   .ninja-setting-card.wide {
     grid-column: auto;
   }
@@ -547,6 +831,12 @@ body.ninja-mode-playing {
     font-size: 1.05rem;
   }
 
+  .ninja-face-frame {
+    top: -27px;
+    width: 50px;
+    height: 50px;
+  }
+
   .ninja-result-grid {
     grid-template-columns: 1fr;
   }
@@ -555,7 +845,9 @@ body.ninja-mode-playing {
 @media (prefers-reduced-motion: reduce) {
   .ninja-ball,
   .ninja-feedback,
-  .game-tab {
+  .game-tab,
+  .ninja-limb {
+    animation: none;
     transition: none;
   }
 }
