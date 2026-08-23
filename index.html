@@ -7,6 +7,7 @@
   
   <!-- CSS Stylesheet -->
   <link rel="stylesheet" href="styles.css?v=all-solutions-expand-pad-1">
+  <link rel="stylesheet" href="ninja.css?v=math-ninja-1">
   
   <!-- KaTeX CSS for LaTeX rendering -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -47,6 +48,17 @@
         </button>
       </div>
     </header>
+
+    <nav class="game-tabs" aria-label="เลือกเกม">
+      <button id="tab-speedmath" class="game-tab active" type="button" aria-selected="true" aria-controls="classic-game-panel">
+        🎯 เกมคิดเลขเร็ว
+      </button>
+      <button id="tab-math-ninja" class="game-tab" type="button" aria-selected="false" aria-controls="ninja-game-panel">
+        🥷 Math Ninja
+      </button>
+    </nav>
+
+    <main id="classic-game-panel" class="game-panel active">
 
     <!-- Main Single Unified Card Stage Container -->
     <div class="card unified-stage-card">
@@ -117,6 +129,12 @@
         <!-- Dynamically rendered LaTeX solutions chips -->
       </div>
     </div>
+
+    </main>
+
+    <section id="ninja-game-panel" class="game-panel" aria-hidden="true">
+      <!-- Math Ninja is rendered by ninja.js -->
+    </section>
 
   </div>
 
@@ -245,5 +263,6 @@
   <script src="audio.js" onerror="this.onerror=null;this.src='js/audio.js'"></script>
   <script src="models/digit-model.js"></script>
   <script src="app.js?v=all-solutions-expand-pad-1" onerror="this.onerror=null;this.src='js/app.js'"></script>
+  <script src="ninja.js?v=math-ninja-1"></script>
 </body>
 </html>
