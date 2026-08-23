@@ -128,14 +128,14 @@ document.addEventListener('DOMContentLoaded', () => {
         <section class="ninja-fancy-access-card" aria-labelledby="ninja-fancy-access-title">
           <div class="ninja-fancy-access-copy">
             <strong id="ninja-fancy-access-title">🎭 โหมดแฟนซี</strong>
-            <span id="ninja-fancy-access-status">ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที</span>
+            <span id="ninja-fancy-access-status">ใส่รหัสเพื่อเล่นแฟนซีตามการตั้งค่าด้านบน</span>
           </div>
           <form id="ninja-fancy-code-form" class="ninja-fancy-code-form">
             <label id="ninja-fancy-code-label" class="sr-only" for="ninja-fancy-code">รหัสปลดล็อกโหมดแฟนซี</label>
             <input id="ninja-fancy-code" class="ninja-fancy-code-input" type="password" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="รหัสผ่าน 8 หลัก">
             <button id="ninja-fancy-code-submit" class="ninja-fancy-code-btn" type="submit">🔓 ปลดล็อกและเล่น</button>
           </form>
-          <button id="ninja-fancy-quick-start" class="ninja-fancy-start-btn" type="button" hidden>✨ เล่นโหมดแฟนซีทันที</button>
+          <button id="ninja-fancy-quick-start" class="ninja-fancy-start-btn" type="button" hidden>✨ เล่นแฟนซีตามค่าที่ตั้ง</button>
           <div id="ninja-fancy-code-error" class="ninja-fancy-code-error" role="alert"></div>
         </section>
 
@@ -309,11 +309,11 @@ document.addEventListener('DOMContentLoaded', () => {
     ui.replay.addEventListener('click', () => startGame(state.fancyMode));
     ui.backSettings.addEventListener('click', showSetup);
     ui.exit.addEventListener('click', exitGame);
-    ui.fancyStart.addEventListener('click', startFancyGame);
+    ui.fancyStart.addEventListener('click', startBonusFancyGame);
     ui.fancyDecline.addEventListener('click', () => {
       ui.fancyUnlock.hidden = true;
     });
-    ui.fancyQuickStart.addEventListener('click', startFancyGame);
+    ui.fancyQuickStart.addEventListener('click', startConfiguredFancyGame);
     ui.fancyCodeForm.addEventListener('submit', event => {
       event.preventDefault();
       if (ui.fancyCode.value.trim() !== FANCY_ACCESS_CODE) {
@@ -344,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
       ui.fancyCode.value = '';
       ui.fancyCodeError.textContent = '';
       refreshFancyAccess();
-      startFancyGame();
+      startConfiguredFancyGame();
     });
 
     // Capture before app.js opens the classic settings modal.
@@ -457,11 +457,20 @@ document.addEventListener('DOMContentLoaded', () => {
     ui.fancyCodeSubmit.classList.toggle('is-locking', unlocked);
     ui.fancyQuickStart.hidden = !state.fancyCodeUnlocked;
     ui.fancyAccessStatus.textContent = unlocked
-      ? 'เปิดใช้งานอยู่ — ใส่รหัสเดิมเพื่อปิด หรือเข้าเล่นได้ทันที'
-      : 'ใส่รหัสเพื่อเข้าเล่นด่านแฟนซี 5 ข้อได้ทันที';
+      ? 'เปิดใช้งานอยู่ — ใช้ความเร็ว ลูกบอล จำนวนข้อ และการดำเนินการด้านบน'
+      : 'ใส่รหัสเพื่อเล่นแฟนซีตามการตั้งค่าด้านบน';
   }
 
-  function startFancyGame() {
+  function startConfiguredFancyGame() {
+    const settings = readSettingsFromForm();
+    if (!settings) return;
+    state.returnSettings = null;
+    state.settings = settings;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    startGame(true);
+  }
+
+  function startBonusFancyGame() {
     state.returnSettings = {
       ...state.settings,
       operations: [...state.settings.operations]

@@ -245,9 +245,22 @@
 
 .ninja-fancy-code-form {
   display: flex;
-  flex: 1 1 360px;
-  min-width: min(100%, 320px);
+  flex: 1 0 320px;
+  min-width: 320px;
+  max-width: 100%;
   gap: 0.55rem;
+}
+
+.ninja-fancy-code-form .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .ninja-fancy-code-form[hidden],
@@ -839,6 +852,12 @@ body.ninja-mode-playing {
   .ninja-fancy-code-form {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .ninja-fancy-code-form {
+    flex: 1 1 auto;
+    width: 100%;
+    min-width: 0;
   }
 
   .ninja-fancy-code-error {
