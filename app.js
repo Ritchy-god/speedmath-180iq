@@ -574,6 +574,8 @@ document.addEventListener('DOMContentLoaded', () => {
     strokes: [],
     currentStroke: null,
     strokeTrackingValid: true,
+    recognitionRevision: 0,
+    recognitionAbortController: null,
     myScriptUsage: null,
 
     getMyScriptProxyUrl() {
@@ -624,10 +626,13 @@ document.addEventListener('DOMContentLoaded', () => {
     },
 
     buildMyScriptRequest() {
-      if (!this.strokeTrackingValid || !this.strokes.length) {
-        throw new Error('MyScript needs original pen strokes; clear the board and write again.');
+      if (!this.strokes.length) {
+        throw new Error('ไม่พบข้อมูลเส้นปากกา กรุณากดล้างแล้วเขียนสมการใหม่');
       }
-      const strokes = this.strokes
+      const sourceStrokes = this.strokeTrackingValid
+        ? this.strokes
+        : this.getVisibleStrokeSegments();
+      const strokes = sourceStrokes
         .filter(stroke => Array.isArray(stroke) && stroke.length >= 1)
         .map((stroke, index) => ({
           id: `stroke-${index + 1}`,
@@ -635,13 +640,73 @@ document.addEventListener('DOMContentLoaded', () => {
           x: (stroke.length === 1 ? [stroke[0], stroke[0]] : stroke).map(point => Number(point.x.toFixed(2))),
           y: (stroke.length === 1 ? [stroke[0], stroke[0]] : stroke).map(point => Number(point.y.toFixed(2)))
         }));
-      if (!strokes.length) throw new Error('No pen strokes to recognize.');
+      if (!strokes.length) throw new Error('ไม่เหลือเส้นสมการให้อ่าน กรุณาเขียนสมการใหม่');
       const rect = this.canvas.getBoundingClientRect();
       return {
         width: Math.max(1, Math.round(rect.width)),
         height: Math.max(1, Math.round(rect.height)),
         strokes
       };
+    },
+
+    getVisibleStrokeSegments() {
+      if (!this.canvas || !this.ctx) return [];
+      let imageData;
+      try {
+        imageData = this.ctx.getImageData(0, 0, this.canvas.width, this.canvas.height);
+      } catch (error) {
+        console.warn('Cannot inspect erased strokes:', error);
+        return [];
+      }
+
+      const dpr = window.devicePixelRatio || 1;
+      const radius = Math.max(1, Math.ceil(this.lineWidth * dpr * 0.7));
+      const hasInk = point => {
+        const centreX = Math.round(point.x * dpr);
+        const centreY = Math.round(point.y * dpr);
+        for (let y = Math.max(0, centreY - radius); y <= Math.min(imageData.height - 1, centreY + radius); y++) {
+          for (let x = Math.max(0, centreX - radius); x <= Math.min(imageData.width - 1, centreX + radius); x++) {
+            if (imageData.data[(y * imageData.width + x) * 4 + 3] > 20) return true;
+          }
+        }
+        return false;
+      };
+
+      const segments = [];
+      this.strokes.forEach(stroke => {
+        if (!Array.isArray(stroke) || !stroke.length) return;
+        const samples = [];
+        for (let index = 0; index < stroke.length; index++) {
+          const point = stroke[index];
+          if (index === 0) {
+            samples.push(point);
+            continue;
+          }
+          const previous = stroke[index - 1];
+          const distance = Math.hypot(point.x - previous.x, point.y - previous.y);
+          const steps = Math.max(1, Math.ceil(distance / 1.5));
+          for (let step = 1; step <= steps; step++) {
+            const ratio = step / steps;
+            samples.push({
+              x: previous.x + (point.x - previous.x) * ratio,
+              y: previous.y + (point.y - previous.y) * ratio
+            });
+          }
+        }
+
+        let visible = [];
+        const flush = () => {
+          if (visible.length === 1) visible.push({ ...visible[0] });
+          if (visible.length >= 2) segments.push(visible);
+          visible = [];
+        };
+        samples.forEach(point => {
+          if (hasInk(point)) visible.push(point);
+          else flush();
+        });
+        flush();
+      });
+      return segments;
     },
 
     normalizeMyScriptLatex(latex) {
@@ -696,28 +761,38 @@ document.addEventListener('DOMContentLoaded', () => {
         return;
       }
       const original = button.textContent;
+      if (this.recognitionAbortController) this.recognitionAbortController.abort();
+      const controller = new AbortController();
+      const requestRevision = this.recognitionRevision;
+      this.recognitionAbortController = controller;
       button.disabled = true;
       button.textContent = '⏳ MyScript...';
       try {
         const response = await fetch(proxyUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.buildMyScriptRequest())
+          body: JSON.stringify(this.buildMyScriptRequest()),
+          signal: controller.signal
         });
         const result = await response.json().catch(() => ({}));
         if (result.usage) this.updateMyScriptUsage(result.usage);
         if (!response.ok) throw new Error(result.error || `MyScript HTTP ${response.status}`);
         const expression = this.normalizeMyScriptLatex(result.latex);
         if (!expression) throw new Error('MyScript returned no equation.');
+        if (requestRevision !== this.recognitionRevision) return;
         exprInput.value = expression;
         exprInput.dispatchEvent(new Event('input', { bubbles: true }));
       } catch (error) {
+        if (error.name === 'AbortError') return;
         console.error('MyScript fallback error:', error);
         alert(`MyScript อ่านไม่สำเร็จ: ${error.message}`);
       } finally {
-        if (button.dataset.limitReached !== 'true') {
-          button.disabled = false;
-          button.textContent = original;
+        if (this.recognitionAbortController === controller) {
+          this.recognitionAbortController = null;
+          if (button.dataset.limitReached !== 'true') {
+            button.disabled = false;
+            button.textContent = original;
+          }
         }
       }
     },
@@ -730,7 +805,8 @@ document.addEventListener('DOMContentLoaded', () => {
       return sides.some(side => !side || !window.MathEngine.evaluate(side).success);
     },
 
-    async useRecognizedExpression(expression, exprInput, button) {
+    async useRecognizedExpression(expression, exprInput, button, expectedRevision = this.recognitionRevision) {
+      if (expectedRevision !== this.recognitionRevision) return;
       const text = String(expression || '').trim();
       if (text) {
         exprInput.value = text;
@@ -870,12 +946,13 @@ document.addEventListener('DOMContentLoaded', () => {
         this.canvas.setPointerCapture(e.pointerId);
       }
       const pos = this.getPos(e);
+      this.recognitionRevision++;
       this.lastX = pos.x;
       this.lastY = pos.y;
       if (this.isEraser) {
         this.currentStroke = null;
         this.strokeTrackingValid = false;
-      } else if (this.strokeTrackingValid) {
+      } else {
         this.currentStroke = [pos];
         this.strokes.push(this.currentStroke);
       }
@@ -930,9 +1007,37 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!this.canvas || !this.ctx) return;
       const dpr = window.devicePixelRatio || 1;
       this.ctx.clearRect(0, 0, this.canvas.width / dpr, this.canvas.height / dpr);
+      if (this.recognitionAbortController) {
+        this.recognitionAbortController.abort();
+        this.recognitionAbortController = null;
+      }
+      this.recognitionRevision++;
       this.strokes = [];
       this.currentStroke = null;
       this.strokeTrackingValid = true;
+      this.isDrawing = false;
+      this.isEraser = false;
+      this.ctx.globalCompositeOperation = 'source-over';
+
+      const eraserBtn = document.getElementById('sp-btn-eraser');
+      if (eraserBtn) eraserBtn.classList.remove('active');
+      document.querySelectorAll('.color-btn').forEach(button => button.classList.remove('active'));
+      const whiteBtn = document.getElementById('sp-color-white');
+      if (whiteBtn) whiteBtn.classList.add('active');
+      this.color = '#ffffff';
+
+      const myScriptBtn = document.getElementById('sp-btn-myscript');
+      if (myScriptBtn && myScriptBtn.dataset.limitReached !== 'true') {
+        myScriptBtn.disabled = false;
+        myScriptBtn.textContent = '☁️ อ่านแบบแม่นยำ';
+      }
+
+      const input = document.getElementById('scratchpad-expr-input');
+      if (input) {
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.blur();
+      }
     },
 
     bindEvents() {
@@ -2708,12 +2813,6 @@ document.addEventListener('DOMContentLoaded', () => {
         clearBtn.addEventListener('click', () => {
           playClick();
           this.clear();
-          const input = document.getElementById('scratchpad-expr-input');
-          if (input) {
-            input.value = '';
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.blur();
-          }
         });
       }
 
@@ -2762,6 +2861,7 @@ document.addEventListener('DOMContentLoaded', () => {
           ocrBtn.textContent = '⏳ กำลังอ่าน...';
 
           try {
+            const requestRevision = this.recognitionRevision;
             if (window.Tesseract || window.SPEEDMATH_DIGIT_MODEL) {
               // getImageData/cropping uses backing-store pixels, not CSS pixels.
               // Dividing these values by DPR made Retina/mobile devices OCR only
@@ -2770,12 +2870,12 @@ document.addEventListener('DOMContentLoaded', () => {
               const h = this.canvas.height;
               const spatialSigma = await this.tryRecognizeRasterSigma(w, h);
               if (spatialSigma) {
-                await this.useRecognizedExpression(spatialSigma, exprInput, ocrBtn);
+                await this.useRecognizedExpression(spatialSigma, exprInput, ocrBtn, requestRevision);
                 return;
               }
               const structuredMath = await this.tryRecognizeStructuredMath(w, h);
               if (structuredMath) {
-                await this.useRecognizedExpression(structuredMath, exprInput, ocrBtn);
+                await this.useRecognizedExpression(structuredMath, exprInput, ocrBtn, requestRevision);
                 return;
               }
               const strokeClusters = this.segmentStrokeClusters(w, h);
@@ -2787,7 +2887,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const recognizedParts = await this.recognizeClusters(clusters);
 
                 if (recognizedParts.length > 0) {
-                  await this.useRecognizedExpression(this.formatRecognizedTokens(recognizedParts), exprInput, ocrBtn);
+                  await this.useRecognizedExpression(this.formatRecognizedTokens(recognizedParts), exprInput, ocrBtn, requestRevision);
                 } else {
                   if (this.getMyScriptProxyUrl() && this.strokeTrackingValid) {
                     await this.recognizeWithMyScript(exprInput, ocrBtn);
@@ -2806,7 +2906,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 await this.useRecognizedExpression(
                   spatialResult || this.cleanOCRText(res.data.text || ''),
                   exprInput,
-                  ocrBtn
+                  ocrBtn,
+                  requestRevision
                 );
               }
             } else {
